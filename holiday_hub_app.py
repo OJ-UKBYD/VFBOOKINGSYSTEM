@@ -12,26 +12,31 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- DATABASE / DATA PERSISTENCE SIMULATION ---
-# We use v2 to completely detach from any old corrupted database structures
-DB_FILE = "bookings_v2_db.json"
+# --- DATABASE / DATA PERSISTENCE ---
+DB_FILE = "bookings_v3_db.json"
 
 def load_bookings():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r") as f:
                 data = json.load(f)
-                return pd.DataFrame(data)
+                df = pd.DataFrame(data)
+                # Safeguard date parsing from string database storage
+                if not df.empty and "Start Date" in df.columns and "End Date" in df.columns:
+                    df["Start Date"] = pd.to_datetime(df["Start Date"]).dt.date
+                    df["End Date"] = pd.to_datetime(df["End Date"]).dt.date
+                return df
         except:
             pass
-    # Clean baseline database structure layout
-    return pd.DataFrame([
+            
+    # Clean baseline database structure layout matching single property rules
+    df_default = pd.DataFrame([
         {
             "Booking ID": "BK-1001", 
             "Guest": "Alice Smith", 
             "Email": "alice@example.com",
-            "Start Date": "2026-10-05", 
-            "End Date": "2026-10-12", 
+            "Start Date": datetime.date(2026, 10, 5), 
+            "End Date": datetime.date(2026, 10, 12), 
             "Phone": "+1 555-0199", 
             "Flight Info": "BA173", 
             "Notes": "Prefers early check-in if possible."
@@ -40,46 +45,35 @@ def load_bookings():
             "Booking ID": "BK-1002", 
             "Guest": "Bob Jones", 
             "Email": "bob@example.com",
-            "Start Date": "2026-10-15", 
-            "End Date": "2026-10-20", 
+            "Start Date": datetime.date(2026, 10, 15), 
+            "End Date": datetime.date(2026, 10, 20), 
             "Phone": "", 
             "Flight Info": "", 
             "Notes": ""
         }
     ])
+    return df_default
 
 def save_bookings(df):
-    df.to_json(DB_FILE, orient="records", indent=4)
+    # Convert dates to ISO string format strings explicitly before exporting to JSON
+    df_to_save = df.copy()
+    if not df_to_save.empty:
+        df_to_save["Start Date"] = df_to_save["Start Date"].apply(lambda x: x.isoformat() if isinstance(x, datetime.date) else str(x))
+        df_to_save["End Date"] = df_to_save["End Date"].apply(lambda x: x.isoformat() if isinstance(x, datetime.date) else str(x))
+    df_to_save.to_json(DB_FILE, orient="records", indent=4)
 
 # --- STATE MANAGEMENT ---
-# Overwrite session state structure to resolve hidden browser cache locks
-raw_df = load_bookings()
-
-# Fallback column checker assignment loops
-required_columns = {
-    "Booking ID": "BK-UNKNOWN",
-    "Guest": "Unknown Guest",
-    "Email": "no-email@example.com",
-    "Start Date": "2026-10-01",
-    "End Date": "2026-10-02",
-    "Phone": "",
-    "Flight Info": "",
-    "Notes": ""
-}
-
-for col, default_val in required_columns.items():
-    if col not in raw_df.columns:
-        raw_df[col] = default_val
-
-# Safely force update session variables clean matrix structures
-st.session_state.bookings = raw_df
+if "bookings" not in st.session_state:
+    st.session_state.bookings = load_bookings()
 
 if "logs" not in st.session_state:
     st.session_state.logs = ["System Initialized... Waiting for reservation inputs."]
 
-# Convert dates cleanly for comparisons safely now
-st.session_state.bookings["Start Date"] = pd.to_datetime(st.session_state.bookings["Start Date"]).dt.date
-st.session_state.bookings["End Date"] = pd.to_datetime(st.session_state.bookings["End Date"]).dt.date
+# Ensure all critical optional columns exist safely
+required_columns = ["Phone", "Flight Info", "Notes", "Email"]
+for col in required_columns:
+    if col not in st.session_state.bookings.columns:
+        st.session_state.bookings[col] = ""
 
 
 # --- SIDEBAR NAVIGATION ---
@@ -95,27 +89,22 @@ if page == "📊 Dashboard & Calendar":
     st.title("📊 Property Management Dashboard")
     st.subheader("Property Availability Calendar Matrix")
     
-    # Calendar inputs
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         calendar_start = st.date_input("Calendar Start View", datetime.date(2026, 10, 1))
     
-    # Build a friendly month-by-month grid layout
     year = calendar_start.year
     month = calendar_start.month
     
     st.write(f"##### Grid view for {calendar.month_name[month]} {year}")
     
-    # Calendar week array calculation
     cal = calendar.monthcalendar(year, month)
     days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     
-    # Render week headers
     header_cols = st.columns(7)
     for idx, day_name in enumerate(days_of_week):
         header_cols[idx].markdown(f"<p style='text-align:center; font-weight:bold; color:#888; margin-bottom:2px;'>{day_name}</p>", unsafe_allow_html=True)
         
-    # Process weeks layout loops
     for week in cal:
         week_cols = st.columns(7)
         for idx, day in enumerate(week):
@@ -124,7 +113,6 @@ if page == "📊 Dashboard & Calendar":
             else:
                 current_date = datetime.date(year, month, day)
                 
-                # Scan master booking database for date intersection matches
                 is_booked = False
                 guest_label = ""
                 for _, row in st.session_state.bookings.iterrows():
@@ -133,7 +121,6 @@ if page == "📊 Dashboard & Calendar":
                         guest_label = row["Guest"]
                         break
                         
-                # UI Layout assignment changes based on availability status
                 bg_color = "#DC3545" if is_booked else "#28A745"
                 status_text = f"Booked: {guest_label}" if is_booked else "Available"
                 
@@ -156,7 +143,6 @@ if page == "📊 Dashboard & Calendar":
                     unsafe_allow_html=True
                 )
 
-    # --- RENDER EXISTENT BOOKINGS LIST MANAGEMENT ---
     st.markdown("---")
     st.subheader("📋 Active Master Booking Registers")
     
@@ -179,7 +165,7 @@ if page == "📊 Dashboard & Calendar":
                 notes_str = row['Notes'] if row['Notes'] else "None"
                 
                 b_col2.markdown(
-                    f"""**Timeline:** {row['Start Date']} to {row['End Date']} <br>
+                    f"""📅 **Timeline:** {row['Start Date']} to {row['End Date']} <br>
                     📞 **Phone:** {phone_str} | ✈️ **Flight:** {flight_str} <br>
                     📝 **Notes:** <em>{notes_str}</em>""", 
                     unsafe_allow_html=True
@@ -194,7 +180,6 @@ if page == "📊 Dashboard & Calendar":
                         st.rerun()
                 st.markdown("<hr style='margin:10px 0; border:0.5px solid #333;'>", unsafe_allow_html=True)
 
-        # Outbox Simulation Monitoring Block
         if st.session_state.logs:
             st.markdown("---")
             with st.expander("✉️ System Confirmation Outbox Logs (Simulated)"):
@@ -205,7 +190,7 @@ if page == "📊 Dashboard & Calendar":
 # --- PAGE 2: NEW BOOKING REQUEST ---
 elif page == "➕ New Booking Request":
     st.title("➕ Create New Lodging Reservation")
-    st.markdown("Fill out the criteria details below to allocate schedule availability and generate a confirmation dispatch simulation log.")
+    st.markdown("Fill out the criteria details below to allocate schedule availability.")
     
     with st.form("booking_form", clear_on_submit=True):
         st.markdown("#### 🔑 Essential Criteria")
@@ -225,7 +210,7 @@ elif page == "➕ New Booking Request":
         with col_f4:
             flight_info = st.text_input("Flight Details / Number:", placeholder="AA123 or Arrival Time")
             
-        guest_notes = st.text_area("Reservation Notes or Special Requests:", placeholder="Add dietary requirements, bed setups, or check-in requests here...")
+        guest_notes = st.text_area("Reservation Notes or Special Requests:", placeholder="Add details here...")
         
         submit_btn = st.form_submit_button("Verify & Dispatch Booking")
         
@@ -244,39 +229,9 @@ elif page == "➕ New Booking Request":
                         break
                 
                 if has_overlap:
-                    st.error("❌ Date Conflict: The property is already reserved during those selected dates. Please check the dashboard matrix.")
+                    st.error("❌ Date Conflict: The property is already reserved during those selected dates.")
                 else:
                     new_id = f"BK-{len(st.session_state.bookings) + 1001}"
                     new_record = {
                         "Booking ID": new_id,
                         "Guest": guest_name,
-                        "Email": guest_email,
-                        "Start Date": check_in,
-                        "End Date": check_out,
-                        "Phone": guest_phone,
-                        "Flight Info": flight_info,
-                        "Notes": guest_notes
-                    }
-                    
-                    st.session_state.bookings = pd.concat([st.session_state.bookings, pd.DataFrame([new_record])], ignore_index=True)
-                    save_bookings(st.session_state.bookings)
-                    
-                    log_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    simulated_log = (
-                        f"[{log_timestamp}] EMAIL DISPATCHED to {guest_email}\n"
-                        f"Subject: Reservation Confirmed - Receipt {new_id}\n"
-                        f"Guest: {guest_name} | Contact: {guest_phone if guest_phone else 'N/A'}\n"
-                        f"Period: {check_in} -> {check_out}\n"
-                        f"Flight Tracking: {flight_info if flight_info else 'None Provided'}\n"
-                        f"Notes: {guest_notes if guest_notes else 'None'}\n"
-                        f"Status: System Confirmed Allocation Cleared."
-                    )
-                    st.session_state.logs.append(simulated_log)
-                    
-                    st.markdown(
-                        f'''<div style="background-color: #28A745; color: white; padding: 15px; border-radius: 6px; margin-bottom:15px;">
-                        <strong>🎉 Reservation Success!</strong> Booking <code>{new_id}</code> registered successfully. A confirmation simulation has been dispatched to your system log container panel.
-                        </div>''', 
-                        unsafe_allow_html=True
-                    )
-
