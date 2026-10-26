@@ -241,4 +241,4 @@ if page == "📊 Dashboard & Calendar":
                         st.error("❌ Conflict: This change overlaps an existing stay.")
                     else:
                         updated_record = {
-                            "Booking ID": target_id,
+                            "Booking ID": target_id,}
