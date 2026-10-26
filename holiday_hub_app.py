@@ -224,5 +224,6 @@ elif page == "➕ New Booking Request":
                 st.error("Data validation failure: Check-In date must fall strictly before Check-Out date.")
             else:
                 # Core Engine Validation Process
-                has_overlap, conflict_list = check_overlap(check_in, check_out)
-                if has_overlap:    
+                has_overlap, conflict_list = check_overlap(check_in, check_out)      
+if has_overlap:
+    pass
