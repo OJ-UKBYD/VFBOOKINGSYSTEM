@@ -91,7 +91,7 @@ if page == "📊 Dashboard & Calendar":
     
     col_c1, col_c2 = st.columns(2)
     with col_c1:
-        calendar_start = st.date_input("Calendar Start View", datetime.date(2026, 10))
+        calendar_start = st.date_input("Calendar Start View", datetime.date(2026, 10, 1))
     
     year = calendar_start.year
     month = calendar_start.month
