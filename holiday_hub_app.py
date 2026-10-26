@@ -226,4 +226,5 @@ elif page == "➕ New Booking Request":
                 # Core Engine Validation Process
                 has_overlap, conflict_list = check_overlap(check_in, check_out)      
 if has_overlap:
-    pass
+    st.error("Dates overlap!")
+
