@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # --- DATABASE / DATA PERSISTENCE ---
-DB_FILE = "bookings_v7_db.json"
+DB_FILE = "bookings_v3_db.json"
 
 def load_bookings():
     if os.path.exists(DB_FILE):
@@ -28,8 +28,7 @@ def load_bookings():
         except:
             pass
             
-    # Clean baseline database structure layout matching single property rules
-    df_default = pd.DataFrame([
+    return pd.DataFrame([
         {
             "Booking ID": "BK-1001", 
             "Guest": "Alice Smith", 
@@ -51,7 +50,6 @@ def load_bookings():
             "Notes": ""
         }
     ])
-    return df_default
 
 def save_bookings(df):
     df_to_save = df.copy()
@@ -70,22 +68,18 @@ if "logs" not in st.session_state:
 if "editing_id" not in st.session_state:
     st.session_state.editing_id = None
 
-# Ensure all critical optional columns exist safely
 required_columns = ["Phone", "Flight Info", "Notes", "Email"]
 for col in required_columns:
     if col not in st.session_state.bookings.columns:
         st.session_state.bookings[col] = ""
 
-
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.title("🏨 Holiday Hub Navigation")
 page = st.sidebar.radio("Go to:", ["📊 Dashboard & Calendar", "➕ New Booking Request"])
-
 st.sidebar.markdown("---")
 st.sidebar.info("💡 **Tip:** New bookings instantly update the calendar grid block view on the dashboard page.")
 
-
-# --- PAGE 1: DASHBOARD & CALENDAR ---
+# --- PAGE 1 VIEW: DASHBOARD ---
 if page == "📊 Dashboard & Calendar":
     st.title("📊 Property Management Dashboard")
     st.subheader("Property Availability Calendar Matrix")
@@ -96,7 +90,6 @@ if page == "📊 Dashboard & Calendar":
     
     year = calendar_start.year
     month = calendar_start.month
-    
     st.write(f"##### Grid view for {calendar.month_name[month]} {year}")
     
     cal = calendar.monthcalendar(year, month)
@@ -113,7 +106,6 @@ if page == "📊 Dashboard & Calendar":
                 week_cols[idx].write("")
             else:
                 current_date = datetime.date(year, month, day)
-                
                 is_booked = False
                 guest_label = ""
                 for _, row in st.session_state.bookings.iterrows():
@@ -126,18 +118,7 @@ if page == "📊 Dashboard & Calendar":
                 status_text = f"Booked: {guest_label}" if is_booked else "Available"
                 
                 week_cols[idx].markdown(
-                    f'''<div style="
-                        background-color: {bg_color}; 
-                        color: white; 
-                        padding: 10px; 
-                        border-radius: 6px; 
-                        text-align: center; 
-                        margin-bottom: 8px;
-                        min-height: 65px;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                    ">
+                    f'''<div style="background-color: {bg_color}; color: white; padding: 10px; border-radius: 6px; text-align: center; margin-bottom: 8px; min-height: 65px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                         <span style="font-size: 14px; font-weight: bold; display: block;">{day}</span>
                         <span style="font-size: 9px; opacity: 0.95; display: block;">{status_text}</span>
                     </div>''', 
@@ -153,7 +134,6 @@ if page == "📊 Dashboard & Calendar":
         for idx, row in st.session_state.bookings.iterrows():
             bid = row['Booking ID']
             with st.container():
-                
                 if st.session_state.editing_id == bid:
                     st.markdown(f"#### 📝 Amend Booking: `{bid}`")
                     with st.form(f"edit_form_{bid}", clear_on_submit=False):
@@ -182,7 +162,7 @@ if page == "📊 Dashboard & Calendar":
                             if not edit_name:
                                 st.error("Missing Requirement: Please provide a guest name.")
                             elif edit_in >= edit_out:
-                                st.error("Error: Check-Out Date must fall cleanly after your chosen Check-In Date.")
+                                st.error("Error: Check-Out Date must fall after Check-In Date.")
                             else:
                                 has_overlap = False
                                 for _, res in st.session_state.bookings.iterrows():
@@ -190,9 +170,8 @@ if page == "📊 Dashboard & Calendar":
                                         if (edit_in <= res["End Date"]) and (edit_out >= res["Start Date"]):
                                             has_overlap = True
                                             break
-                                
                                 if has_overlap:
-                                    st.error("❌ Date Conflict: The modified dates overlap an existing reservation stay.")
+                                    st.error("❌ Date Conflict: The modified dates overlap an existing reservation.")
                                 else:
                                     match_idx = st.session_state.bookings[st.session_state.bookings['Booking ID'] == bid].index
                                     st.session_state.bookings.at[match_idx, "Guest"] = edit_name
@@ -202,7 +181,6 @@ if page == "📊 Dashboard & Calendar":
                                     st.session_state.bookings.at[match_idx, "Phone"] = edit_phone
                                     st.session_state.bookings.at[match_idx, "Flight Info"] = edit_flight
                                     st.session_state.bookings.at[match_idx, "Notes"] = edit_notes
-                                    
                                     save_bookings(st.session_state.bookings)
                                     st.session_state.editing_id = None
                                     st.toast("Booking details updated successfully!")
@@ -213,7 +191,13 @@ if page == "📊 Dashboard & Calendar":
                             st.rerun()
                 else:
                     b_col1, b_col2, b_col3 = st.columns([1.5, 1.5, 1])
+                    email_display = str(row['Email']) if row['Email'] else 'N/A'
+                    phone_display = str(row['Phone']) if row['Phone'] else 'None'
+                    flight_display = str(row['Flight Info']) if row['Flight Info'] else 'None'
+                    notes_display = str(row['Notes']) if row['Notes'] else 'None'
                     
-                    b_col1.markdown(
-                        f"""**ID:** `{bid}` <br> 
-                        👤 **Guest:** {row['Guest']} <br> 
+                    b_col1.markdown(f"**ID:** `{bid}`")
+                    b_col1.markdown(f"👤 **Guest:** {row['Guest']}")
+                    b_col1.markdown(f"✉️ **Email:** {email_display}")
+                    
+                    b_col2.markdown(f"📅 **Timeline:** {row['Start Date']} to {row['End Date']}")
