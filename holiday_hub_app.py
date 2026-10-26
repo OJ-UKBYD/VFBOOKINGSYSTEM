@@ -153,11 +153,11 @@ if page == "📅 Dashboard & Summary":
                     )
                 else:
                     st.markdown(
-                        f'''<div style="background-color: #28A745; color: white; padding: 10px; 
-                        border-radius: 6px; text-align: center; margin-bottom: 10px; min-height: 85px; box-shadow: 1px 1px 3px rgba(0,0,0,0.15)">
-                        <strong>{day_str}</strong><br><span style="font-size: 0.75rem;">🟢 Free</span></div>''', 
-                        unsafe_html=True
-                    )
+    f'''<div style="background-color: #28A745; color: white; padding: 10px; border-radius: 5px;">
+    Success message or text here
+    </div>''', 
+    unsafe_allow_html=True
+)
                     
     # Expandable Summary Area
     st.markdown("---")
