@@ -232,19 +232,19 @@ for week in cal:
                 
                 # Option to clear records
                 act_col1, act_col2 = st.columns([6, 1])
-                with act_col2:
-                    if st.button("Cancel Booking", key=f"del_{row['Booking ID']}", type="primary"):
-                        st.session_state.bookings = st.session_state.bookings[st.session_state.bookings['Booking ID'] != row['Booking ID']]
-                        save_bookings(st.session_state.bookings)
-                        st.toast("Booking removed successfully!")
-                        st.rerun()
+                            with act_col2:
+                if st.button("Cancel Booking", key=f"del_{row['Booking ID']}", type="primary"):
+                    st.session_state.bookings = st.session_state.bookings[st.session_state.bookings['Booking ID'] != row['Booking ID']]
+                    save_bookings(st.session_state.bookings)
+                    st.toast("Booking removed successfully!")
+                    st.rerun()
 
-    # Outbox Simulation Monitoring Block
-    if st.session_state.logs:
-        st.markdown("---")
-        with st.expander("✉️ System Confirmation Outbox Logs (Simulated)"):
-            for log in reversed(st.session_state.logs):
-                st.code(log, language="text")
+        # Outbox Simulation Monitoring Block
+        if st.session_state.logs:
+            st.markdown("---")
+            with st.expander("✉️ System Confirmation Outbox Logs (Simulated)"):
+                for log in reversed(st.session_state.logs):
+                    st.code(log, language="text")
 
 # --- PAGE 2: NEW BOOKING REQUEST ---
 elif page == "➕ New Booking Request":
@@ -253,6 +253,7 @@ elif page == "➕ New Booking Request":
     
     with st.form("booking_form", clear_on_submit=True):
         col_f1, col_f2 = st.columns(2)
+
         with col_f1:
             guest_name = st.text_input("Name of Guest *")
             check_in = st.date_input("Check-In Date", datetime.today().date() + timedelta(days=1))
