@@ -217,4 +217,3 @@ if page == "📊 Dashboard & Calendar":
                     b_col1.markdown(
                         f"""**ID:** `{bid}` <br> 
                         👤 **Guest:** {row['Guest']} <br> 
-
