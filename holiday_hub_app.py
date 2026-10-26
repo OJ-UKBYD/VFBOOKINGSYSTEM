@@ -212,5 +212,11 @@ elif page == "➕ New Booking Request":
                     
                     # Clean markdown layout notice verification execution block
                     st.markdown(
+                        f'''<div style="background-color: #28A745; color: white; padding: 15px; border-radius: 6px; margin-bottom:15px;">
+                        <strong>🎉 Reservation Success!</strong> Booking <code>{new_id}</code> registered successfully. A confirmation simulation has been dispatched to your system log container panel.
+                        </div>''', 
+                        unsafe_allow_html=True
+                    ) # <-- MAKE SURE THIS CLOSING PARENTHESIS IS HERE
+
 
 
