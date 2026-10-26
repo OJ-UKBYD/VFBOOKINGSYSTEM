@@ -58,7 +58,7 @@ def save_bookings(df):
         df_to_save["End Date"] = df_to_save["End Date"].apply(lambda x: x.isoformat() if isinstance(x, datetime.date) else str(x))
     df_to_save.to_json(DB_FILE, orient="records", indent=4)
 
-# --- STATE MANAGEMENT ---
+# --- STATE LIFECYCLE INITIALIZATION ---
 if "bookings" not in st.session_state:
     st.session_state.bookings = load_bookings()
 
@@ -68,6 +68,7 @@ if "logs" not in st.session_state:
 if "editing_id" not in st.session_state:
     st.session_state.editing_id = None
 
+# Self-healing column verification
 required_columns = ["Phone", "Flight Info", "Notes", "Email"]
 for col in required_columns:
     if col not in st.session_state.bookings.columns:
@@ -131,7 +132,8 @@ if page == "📊 Dashboard & Calendar":
     if st.session_state.bookings.empty:
         st.info("No active reservations detected.")
     else:
-        for idx, row in st.session_state.bookings.iterrows():
+        # Loop through a copy to protect runtime indices from truncation errors
+        for idx, row in st.session_state.bookings.copy().iterrows():
             bid = row['Booking ID']
             with st.container():
                 if st.session_state.editing_id == bid:
@@ -181,6 +183,7 @@ if page == "📊 Dashboard & Calendar":
                                     st.session_state.bookings.at[match_idx, "Phone"] = edit_phone
                                     st.session_state.bookings.at[match_idx, "Flight Info"] = edit_flight
                                     st.session_state.bookings.at[match_idx, "Notes"] = edit_notes
+                                    
                                     save_bookings(st.session_state.bookings)
                                     st.session_state.editing_id = None
                                     st.toast("Booking details updated successfully!")
@@ -200,4 +203,3 @@ if page == "📊 Dashboard & Calendar":
                     b_col1.markdown(f"👤 **Guest:** {row['Guest']}")
                     b_col1.markdown(f"✉️ **Email:** {email_display}")
                     
-                    b_col2.markdown(f"📅 **Timeline:** {row['Start Date']} to {row['End Date']}")
