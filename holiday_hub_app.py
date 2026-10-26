@@ -13,99 +13,148 @@ st.set_page_config(
 )
 
 # --- DATABASE / DATA PERSISTENCE ---
-DB_FILE = "bookings_v3_db.json"
+# Google Sheets is used as the persistent backend.
+#
+# Streamlit secrets required:
+#
+# [gcp_service_account]
+# type = "service_account"
+# project_id = "your-project-id"
+# private_key_id = "..."
+# private_key = "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"
+# client_email = "..."
+# client_id = "..."
+# auth_uri = "https://accounts.google.com/o/oauth2/auth"
+# token_uri = "https://oauth2.googleapis.com/token"
+# auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+# client_x509_cert_url = "..."
+#
+# [google_sheets]
+# spreadsheet_id = "YOUR_GOOGLE_SHEET_ID"
+# worksheet_name = "Bookings"
+#
+# Install dependencies:
+#   pip install gspread google-auth
+
+import gspread
+from google.oauth2.service_account import Credentials
+
+SHEET_COLUMNS = [
+    "Booking ID",
+    "Guest",
+    "Email",
+    "Start Date",
+    "End Date",
+    "Phone",
+    "Flight Info",
+    "Notes",
+]
+
+@st.cache_resource
+def get_google_sheet():
+    if "gcp_service_account" not in st.secrets:
+        raise RuntimeError(
+            "Google Sheets is not configured. Add [gcp_service_account] "
+            "to Streamlit secrets."
+        )
+
+    spreadsheet_id = st.secrets.get("google_sheets", {}).get("spreadsheet_id")
+    worksheet_name = st.secrets.get("google_sheets", {}).get(
+        "worksheet_name", "Bookings"
+    )
+
+    if not spreadsheet_id:
+        raise RuntimeError(
+            "Missing google_sheets.spreadsheet_id in Streamlit secrets."
+        )
+
+    credentials = Credentials.from_service_account_info(
+        dict(st.secrets["gcp_service_account"]),
+        scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ],
+    )
+
+    client = gspread.authorize(credentials)
+    spreadsheet = client.open_by_key(spreadsheet_id)
+
+    try:
+        worksheet = spreadsheet.worksheet(worksheet_name)
+    except gspread.WorksheetNotFound:
+        worksheet = spreadsheet.add_worksheet(
+            title=worksheet_name,
+            rows=1000,
+            cols=len(SHEET_COLUMNS),
+        )
+        worksheet.append_row(SHEET_COLUMNS)
+
+    return worksheet
+
 
 def load_bookings():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r") as f:
-                data = json.load(f)
-                df = pd.DataFrame(data)
-                # Safeguard date parsing from string database storage
-                if not df.empty and "Start Date" in df.columns and "End Date" in df.columns:
-                    df["Start Date"] = pd.to_datetime(df["Start Date"]).dt.date
-                    df["End Date"] = pd.to_datetime(df["End Date"]).dt.date
-                return df
-        except:
-            pass
-            
-    # Clean baseline database structure layout matching single property rules
-    df_default = pd.DataFrame([
-        {
-            "Booking ID": "BK-1001", 
-            "Guest": "Alice Smith", 
-            "Email": "alice@example.com",
-            "Start Date": datetime.date(2026, 10, 5), 
-            "End Date": datetime.date(2026, 10, 12), 
-            "Phone": "+1 555-0199", 
-            "Flight Info": "BA173", 
-            "Notes": "Prefers early check-in if possible."
-        },
-        {
-            "Booking ID": "BK-1002", 
-            "Guest": "Bob Jones", 
-            "Email": "bob@example.com",
-            "Start Date": datetime.date(2026, 10, 15), 
-            "End Date": datetime.date(2026, 10, 20), 
-            "Phone": "", 
-            "Flight Info": "", 
-            "Notes": ""
-        }
-    ])
-    return df_default
+    worksheet = get_google_sheet()
+    records = worksheet.get_all_records()
+
+    if not records:
+        worksheet.update("A1:H1", [SHEET_COLUMNS])
+        return pd.DataFrame(columns=SHEET_COLUMNS)
+
+    df = pd.DataFrame(records)
+
+    for col in SHEET_COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+
+    df = df[SHEET_COLUMNS]
+
+    if not df.empty:
+        df["Start Date"] = pd.to_datetime(
+            df["Start Date"], errors="coerce"
+        ).dt.date
+        df["End Date"] = pd.to_datetime(
+            df["End Date"], errors="coerce"
+        ).dt.date
+
+    return df
+
 
 def save_bookings(df):
-    # Convert dates to ISO string format strings explicitly before exporting to JSON
+    worksheet = get_google_sheet()
+
     df_to_save = df.copy()
-    if not df_to_save.empty:
-        df_to_save["Start Date"] = df_to_save["Start Date"].apply(lambda x: x.isoformat() if isinstance(x, datetime.date) else str(x))
-        df_to_save["End Date"] = df_to_save["End Date"].apply(lambda x: x.isoformat() if isinstance(x, datetime.date) else str(x))
-    df_to_save.to_json(DB_FILE, orient="records", indent=4)
 
-def booking_has_overlap(start_date, end_date, exclude_booking_id=None):
-    """Return True if the proposed dates overlap another booking."""
-    for _, res in st.session_state.bookings.iterrows():
-        if exclude_booking_id and res["Booking ID"] == exclude_booking_id:
-            continue
-        if (start_date <= res["End Date"]) and (end_date >= res["Start Date"]):
-            return True
-    return False
+    for col in SHEET_COLUMNS:
+        if col not in df_to_save.columns:
+            df_to_save[col] = ""
 
+    df_to_save = df_to_save[SHEET_COLUMNS]
 
-def get_next_booking_id():
-    """Generate the next available numeric booking ID."""
-    highest_number = 1000
-    for booking_id in st.session_state.bookings.get("Booking ID", []):
-        try:
-            highest_number = max(highest_number, int(str(booking_id).replace("BK-", "")))
-        except (ValueError, TypeError):
-            continue
-    return f"BK-{highest_number + 1}"
+    for col in ["Start Date", "End Date"]:
+        df_to_save[col] = df_to_save[col].apply(
+            lambda x: x.isoformat()
+            if isinstance(x, (datetime.date, datetime.datetime))
+            else ("" if pd.isna(x) else str(x))
+        )
 
+    df_to_save = df_to_save.fillna("")
+    values = [SHEET_COLUMNS] + df_to_save.astype(str).values.tolist()
 
-def log_booking_action(action, booking_id, guest, email, start_date, end_date,
-                       phone, flight_info, notes):
-    """Add a simulated outbox log; email is optional."""
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    recipient = (
-        f"EMAIL DISPATCHED to {email}"
-        if email
-        else "NO EMAIL DISPATCHED (guest email not provided)"
-    )
-    st.session_state.logs.append(
-        f"[{timestamp}] {recipient}\n"
-        f"Action: {action}\n"
-        f"Subject: Reservation {action} - Receipt {booking_id}\n"
-        f"Guest: {guest} | Contact: {phone if phone else 'N/A'}\n"
-        f"Period: {start_date} -> {end_date}\n"
-        f"Flight Tracking: {flight_info if flight_info else 'None'}\n"
-        f"Notes: {notes if notes else 'None'}"
+    # Replace the sheet contents in one operation.
+    worksheet.clear()
+    worksheet.update(
+        range_name=f"A1:H{len(values)}",
+        values=values,
     )
 
 
 # --- STATE MANAGEMENT ---
 if "bookings" not in st.session_state:
-    st.session_state.bookings = load_bookings()
+    try:
+        st.session_state.bookings = load_bookings()
+    except Exception as e:
+        st.error(f"Google Sheets connection failed: {e}")
+        st.stop()
 
 if "logs" not in st.session_state:
     st.session_state.logs = ["System Initialized... Waiting for reservation inputs."]
@@ -123,6 +172,7 @@ for col in required_columns:
 
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.title("🏨 Holiday Hub Navigation")
+st.sidebar.caption("☁️ Booking data is stored in Google Sheets")
 page = st.sidebar.radio("Go to:", ["📊 Dashboard & Calendar", "➕ New Booking Request"])
 
 st.sidebar.markdown("---")
@@ -434,4 +484,3 @@ elif page == "➕ New Booking Request":
                         </div>''', 
                         unsafe_allow_html=True
                     )
-
