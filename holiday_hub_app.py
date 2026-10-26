@@ -214,7 +214,7 @@ elif page == "➕ New Booking Request":
         
         submit_btn = st.form_submit_button("Verify & Dispatch Booking")
         
-            if submit_btn:
+        if submit_btn:
             if not guest_name:
                 st.error("Missing Requirement: Please provide a guest name.")
             elif not guest_email:
