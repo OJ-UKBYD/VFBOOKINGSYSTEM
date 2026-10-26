@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # --- DATABASE / DATA PERSISTENCE ---
-DB_FILE = "bookings_v3_db.json"
+DB_FILE = "bookings_v4_db.json"
 
 def load_bookings():
     if os.path.exists(DB_FILE):
@@ -21,7 +21,6 @@ def load_bookings():
             with open(DB_FILE, "r") as f:
                 data = json.load(f)
                 df = pd.DataFrame(data)
-                # Safeguard date parsing from string database storage
                 if not df.empty and "Start Date" in df.columns and "End Date" in df.columns:
                     df["Start Date"] = pd.to_datetime(df["Start Date"]).dt.date
                     df["End Date"] = pd.to_datetime(df["End Date"]).dt.date
@@ -29,7 +28,6 @@ def load_bookings():
         except:
             pass
             
-    # Clean baseline database structure layout matching single property rules
     df_default = pd.DataFrame([
         {
             "Booking ID": "BK-1001", 
@@ -38,7 +36,8 @@ def load_bookings():
             "Start Date": datetime.date(2026, 10, 5), 
             "End Date": datetime.date(2026, 10, 12), 
             "Phone": "+1 555-0199", 
-            "Flight Info": "BA173", 
+            "Arrival Flight": "BA173", 
+            "Return Flight": "BA174",
             "Notes": "Prefers early check-in if possible."
         },
         {
@@ -48,14 +47,14 @@ def load_bookings():
             "Start Date": datetime.date(2026, 10, 15), 
             "End Date": datetime.date(2026, 10, 20), 
             "Phone": "", 
-            "Flight Info": "", 
+            "Arrival Flight": "", 
+            "Return Flight": "",
             "Notes": ""
         }
     ])
     return df_default
 
 def save_bookings(df):
-    # Convert dates to ISO string format strings explicitly before exporting to JSON
     df_to_save = df.copy()
     if not df_to_save.empty:
         df_to_save["Start Date"] = df_to_save["Start Date"].apply(lambda x: x.isoformat() if isinstance(x, datetime.date) else str(x))
@@ -69,11 +68,17 @@ if "bookings" not in st.session_state:
 if "logs" not in st.session_state:
     st.session_state.logs = ["System Initialized... Waiting for reservation inputs."]
 
-# Ensure all critical optional columns exist safely
-required_columns = ["Phone", "Flight Info", "Notes", "Email"]
+# Maintain edit modes dynamically per booking row
+if "editing_id" not in st.session_state:
+    st.session_state.editing_id = None
+
+required_columns = ["Phone", "Arrival Flight", "Return Flight", "Notes", "Email"]
 for col in required_columns:
     if col not in st.session_state.bookings.columns:
-        st.session_state.bookings[col] = ""
+        if col == "Arrival Flight" and "Flight Info" in st.session_state.bookings.columns:
+            st.session_state.bookings.rename(columns={"Flight Info": "Arrival Flight"}, inplace=True)
+        else:
+            st.session_state.bookings[col] = ""
 
 
 # --- SIDEBAR NAVIGATION ---
@@ -116,7 +121,7 @@ if page == "📊 Dashboard & Calendar":
                 is_booked = False
                 guest_label = ""
                 for _, row in st.session_state.bookings.iterrows():
-                    if row["Start Date"] <= current_date <= row["End Date"]:
+                    if row["Start Date"] <= current_date < row["End Date"]:
                         is_booked = True
                         guest_label = row["Guest"]
                         break
@@ -150,116 +155,60 @@ if page == "📊 Dashboard & Calendar":
         st.info("No active reservations detected.")
     else:
         for idx, row in st.session_state.bookings.iterrows():
-            with st.container():
-                b_col1, b_col2, b_col3 = st.columns([1.5, 1.5, 1])
+            bid = row['Booking ID']
+            with st.expander(f"👤 Booking ID: {bid} — Guest: {row['Guest']} ({row['Start Date']} to {row['End Date']})"):
                 
-                b_col1.markdown(
-                    f"""**ID:** `{row['Booking ID']}` <br> 
-                    👤 **Guest:** {row['Guest']} <br> 
-                    ✉️ **Email:** {row['Email']}""", 
-                    unsafe_allow_html=True
-                )
-                
-                phone_str = row['Phone'] if row['Phone'] else "None"
-                flight_str = row['Flight Info'] if row['Flight Info'] else "None"
-                notes_str = row['Notes'] if row['Notes'] else "None"
-                
-                b_col2.markdown(
-                    f"""📅 **Timeline:** {row['Start Date']} to {row['End Date']} <br>
-                    📞 **Phone:** {phone_str} | ✈️ **Flight:** {flight_str} <br>
-                    📝 **Notes:** <em>{notes_str}</em>""", 
-                    unsafe_allow_html=True
-                )
-                
-                with b_col3:
-                    st.write("")
-                    if st.button("Cancel Booking", key=f"del_{row['Booking ID']}", type="primary"):
-                        st.session_state.bookings = st.session_state.bookings[st.session_state.bookings['Booking ID'] != row['Booking ID']]
-                        save_bookings(st.session_state.bookings)
-                        st.toast("Booking removed successfully!")
-                        st.rerun()
-                st.markdown("<hr style='margin:10px 0; border:0.5px solid #333;'>", unsafe_allow_html=True)
+                # Check if this booking row has active edit mode toggled on
+                if st.session_state.editing_id == bid:
+                    st.markdown("#### 📝 Edit Booking Information")
+                    with st.form(f"edit_form_{bid}", clear_on_submit=False):
+                        e_c1, e_c2 = st.columns(2)
+                        with e_c1:
+                            edit_name = st.text_input("Guest Name:", value=row['Guest'])
+                            edit_email = st.text_input("Email:", value=row['Email'])
+                            edit_phone = st.text_input("Phone:", value=row['Phone'])
+                        with e_c2:
+                            edit_in = st.date_input("Check-In Date:", value=row['Start Date'])
+                            edit_out = st.date_input("Check-Out Date:", value=row['End Date'])
+                            edit_arr = st.text_input("Arrival Flight:", value=row['Arrival Flight'])
+                            edit_ret = st.text_input("Return Flight:", value=row['Return Flight'])
+                            
+                        edit_notes = st.text_area("Notes:", value=row['Notes'])
+                        
+                        f_col1, f_col2 = st.columns([1, 6])
+                        with f_col1:
+                            save_btn = st.form_submit_button("Save changes", type="primary")
+                        with f_col2:
+                            cancel_edit = st.form_submit_button("Cancel")
+                            
+                        if save_btn:
+                            if not edit_name or not edit_email:
+                                st.error("Name and Email parameters are required.")
+                            elif edit_in >= edit_out:
+                                st.error("Check-Out must fall after Check-In.")
+                            else:
+                                # Overlap validation matching against other bookings excluding itself
+                                has_overlap = False
+                                for _, res in st.session_state.bookings.iterrows():
+                                    if res["Booking ID"] != bid:
+                                        if (edit_in < res["End Date"]) and (edit_out > res["Start Date"]):
+                                            has_overlap = True
+                                            break
+                                            
+                                if has_overlap:
+                                    st.error("❌ Date Conflict: Changes overlap another reservation window.")
+                                else:
+                                    # Locate index and assign values back to target entry
+                                    match_idx = st.session_state.bookings[st.session_state.bookings['Booking ID'] == bid].index[0]
+                                    st.session_state.bookings.at[match_idx, "Guest"] = edit_name
+                                    st.session_state.bookings.at[match_idx, "Email"] = edit_email
+                                    st.session_state.bookings.at[match_idx, "Phone"] = edit_phone
+                                    st.session_state.bookings.at[match_idx, "Start Date"] = edit_in
+                                    st.session_state.bookings.at[match_idx, "End Date"] = edit_out
+                                    st.session_state.bookings.at[match_idx, "Arrival Flight"] = edit_arr
+                                    st.session_state.bookings.at[match_idx, "Return Flight"] = edit_ret
+                                    st.session_state.bookings.at[match_idx, "Notes"] = edit_notes
+                                    
+                                    save_bookings(st.session_state.bookings)
+                                    st.session_state.editing_id = None
 
-        if st.session_state.logs:
-            st.markdown("---")
-            with st.expander("✉️ System Confirmation Outbox Logs (Simulated)"):
-                for log in reversed(st.session_state.logs):
-                    st.code(log, language="text")
-
-
-# --- PAGE 2: NEW BOOKING REQUEST ---
-elif page == "➕ New Booking Request":
-    st.title("➕ Create New Lodging Reservation")
-    st.markdown("Fill out the criteria details below to allocate schedule availability.")
-    
-    with st.form("booking_form", clear_on_submit=True):
-        st.markdown("#### 🔑 Essential Criteria")
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            guest_name = st.text_input("Primary Guest Full Name:", placeholder="John Doe")
-            guest_email = st.text_input("Guest Email Address:", placeholder="john.doe@example.com")
-        with col_f2:
-            check_in = st.date_input("Check-In Date", datetime.date(2026, 10, 5))
-            check_out = st.date_input("Check-Out Date", datetime.date(2026, 10, 12))
-            
-        st.markdown("---")
-        st.markdown("#### 📋 Optional Information")
-        col_f3, col_f4 = st.columns(2)
-        with col_f3:
-            guest_phone = st.text_input("Phone Number:", placeholder="+1 (555) 000-0000")
-        with col_f4:
-            flight_info = st.text_input("Flight Details / Number:", placeholder="AA123 or Arrival Time")
-            
-        guest_notes = st.text_area("Reservation Notes or Special Requests:", placeholder="Add details here...")
-        
-        submit_btn = st.form_submit_button("Verify & Dispatch Booking")
-        
-        if submit_btn:
-            if not guest_name:
-                st.error("Missing Requirement: Please provide a guest name.")
-            elif not guest_email:
-                st.error("Missing Requirement: Please provide a valid email address.")
-            elif check_in >= check_out:
-                st.error("Error: Check-Out Date must fall cleanly after your chosen Check-In Date.")
-            else:
-                has_overlap = False
-                for _, res in st.session_state.bookings.iterrows():
-                    if (check_in <= res["End Date"]) and (check_out >= res["Start Date"]):
-                        has_overlap = True
-                        break
-                
-                if has_overlap:
-                    st.error("❌ Date Conflict: The property is already reserved during those selected dates.")
-                else:
-                    new_id = f"BK-{len(st.session_state.bookings) + 1001}"
-                    new_record = {
-                        "Booking ID": new_id,
-                        "Guest": guest_name,
-                        "Email": guest_email,
-                        "Start Date": check_in,
-                        "End Date": check_out,
-                        "Phone": guest_phone,
-                        "Flight Info": flight_info,
-                        "Notes": guest_notes
-                    }
-                    
-                    st.session_state.bookings = pd.concat([st.session_state.bookings, pd.DataFrame([new_record])], ignore_index=True)
-                    save_bookings(st.session_state.bookings)
-                    
-                    log_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    simulated_log = (
-                        f"[{log_timestamp}] EMAIL DISPATCHED to {guest_email}\n"
-                        f"Subject: Reservation Confirmed - Receipt {new_id}\n"
-                        f"Guest: {guest_name} | Contact: {guest_phone if guest_phone else 'N/A'}\n"
-                        f"Period: {check_in} -> {check_out}\n"
-                        f"Flight Tracking: {flight_info if flight_info else 'None'}\n"
-                        f"Notes: {guest_notes if guest_notes else 'None'}"
-                    )
-                    st.session_state.logs.append(simulated_log)
-                    
-                    st.markdown(
-                        f'''<div style="background-color: #28A745; color: white; padding: 15px; border-radius: 6px; margin-bottom:15px;">
-                        <strong>🎉 Reservation Success!</strong> Booking <code>{new_id}</code> registered successfully.
-                        </div>''', 
-                        unsafe_allow_html=True
-                    )
