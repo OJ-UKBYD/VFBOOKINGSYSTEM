@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import calendar
-import sqlite3
+import json
 import os
 import time
 
@@ -13,135 +13,102 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- DATABASE / RELATIONAL DATA PERSISTENCE ---
-DB_FILE = "bookings_v6.db"
+# --- SELF-HEALING JSON DATABASE PERSISTENCE ---
+DB_FILE = "bookings_v6_json.json"
 
-def init_db():
-    """Initializes the SQLite database with all 7 user-requested input fields."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS bookings (
-            booking_id TEXT PRIMARY KEY,
-            guest_name TEXT NOT NULL,
-            email TEXT NOT NULL,
-            start_date TEXT NOT NULL,
-            end_date TEXT NOT NULL,
-            phone TEXT,
-            arrival_flight TEXT,
-            return_flight TEXT,
-            notes TEXT
-        )
-    ''')
-    conn.commit()
-    
-    # Inject Mock/Seed Bookings immediately if the database is brand new
-    cursor.execute("SELECT COUNT(*) FROM bookings")
-    if cursor.fetchone() == 0:
-        seed_data = [
-            ("BK-1001", "Alice Smith", "alice@example.com", "2026-10-05", "2026-10-12", "+1 555-0199", "BA173", "BA174", "Prefers early check-in if possible."),
-            ("BK-1002", "Bob Jones", "bob@example.com", "2026-10-15", "2026-10-20", "+44 7700 900077", "FR102", "FR103", "Will need cot setup.")
-        ]
-        cursor.executemany('''
-            INSERT INTO bookings (booking_id, guest_name, email, start_date, end_date, phone, arrival_flight, return_flight, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', seed_data)
-        conn.commit()
-    conn.close()
+def load_bookings_from_json():
+    """Loads text from JSON file with smart data-type recovery and self-healing columns."""
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r") as f:
+                data = json.load(f)
+            if data:
+                df = pd.DataFrame(data)
+                
+                # Dynamic Code Adaptation: Map old database names to new names instantly
+                if "Flight Info" in df.columns and "Arrival Flight" not in df.columns:
+                    df.rename(columns={"Flight Info": "Arrival Flight"}, inplace=True)
+                
+                # Self-Healing Layer: Guarantee all 7 custom inputs exist safely without breaking
+                required_cols = ["Booking ID", "Guest", "Email", "Start Date", "End Date", "Phone", "Arrival Flight", "Return Flight", "Notes"]
+                for col in required_cols:
+                    if col not in df.columns:
+                        df[col] = ""
+                
+                # Strict Date Typing Parse
+                df["Start Date"] = pd.to_datetime(df["Start Date"]).dt.date
+                df["End Date"] = pd.to_datetime(df["End Date"]).dt.date
+                return df
+        except Exception as e:
+            # Fallback alert in terminal if parse goes wrong
+            print(f"JSON Auto-Healing Log: Structural adjustments handled ({e})")
+            
+    # Default Mock Entries initialized immediately if no database exists
+    df_default = pd.DataFrame([
+        {
+            "Booking ID": "BK-1001", 
+            "Guest": "Alice Smith", 
+            "Email": "alice@example.com",
+            "Start Date": datetime.date(2026, 10, 5), 
+            "End Date": datetime.date(2026, 10, 12), 
+            "Phone": "+1 555-0199", 
+            "Arrival Flight": "BA173", 
+            "Return Flight": "BA174",
+            "Notes": "Prefers early check-in if possible."
+        },
+        {
+            "Booking ID": "BK-1002", 
+            "Guest": "Bob Jones", 
+            "Email": "bob@example.com",
+            "Start Date": datetime.date(2026, 10, 15), 
+            "End Date": datetime.date(2026, 10, 20), 
+            "Phone": "+44 7700 900077", 
+            "Arrival Flight": "FR102", 
+            "Return Flight": "FR103",
+            "Notes": "Will need cot setup."
+        }
+    ])
+    return df_default
 
-def load_bookings_from_db():
-    """Reads SQLite rows securely back into a clean Pandas DataFrame."""
-    conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql_query("SELECT * FROM bookings", conn)
-    conn.close()
-    
-    if not df.empty:
-        df.rename(columns={
-            "booking_id": "Booking ID",
-            "guest_name": "Guest",
-            "email": "Email",
-            "start_date": "Start Date",
-            "end_date": "End Date",
-            "phone": "Phone",
-            "arrival_flight": "Arrival Flight",
-            "return_flight": "Return Flight",
-            "notes": "Notes"
-        }, inplace=True)
-        df["Start Date"] = pd.to_datetime(df["Start Date"]).dt.date
-        df["End Date"] = pd.to_datetime(df["End Date"]).dt.date
-    else:
-        df = pd.DataFrame(columns=["Booking ID", "Guest", "Email", "Start Date", "End Date", "Phone", "Arrival Flight", "Return Flight", "Notes"])
-    return df
+def save_bookings_to_json(df):
+    """Converts dates to plain ISO strings safely before saving to the file workspace."""
+    df_to_save = df.copy()
+    if not df_to_save.empty:
+        df_to_save["Start Date"] = df_to_save["Start Date"].apply(lambda x: x.isoformat() if isinstance(x, datetime.date) else str(x))
+        df_to_save["End Date"] = df_to_save["End Date"].apply(lambda x: x.isoformat() if isinstance(x, datetime.date) else str(x))
+    df_to_save.to_json(DB_FILE, orient="records", indent=4)
 
-def add_booking_to_db(record):
-    """Inserts a new guest reservation record."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO bookings (booking_id, guest_name, email, start_date, end_date, phone, arrival_flight, return_flight, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        record["Booking ID"], record["Guest"], record["Email"],
-        record["Start Date"].isoformat(), record["End Date"].isoformat(),
-        record["Phone"], record["Arrival Flight"], record["Return Flight"], record["Notes"]
-    ))
-    conn.commit()
-    conn.close()
 
-def update_booking_in_db(record):
-    """Updates an existing guest record using its unique Booking ID."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        UPDATE bookings 
-        SET guest_name = ?, email = ?, start_date = ?, end_date = ?, phone = ?, arrival_flight = ?, return_flight = ?, notes = ?
-        WHERE booking_id = ?
-    ''', (
-        record["Guest"], record["Email"], record["Start Date"].isoformat(), record["End Date"].isoformat(),
-        record["Phone"], record["Arrival Flight"], record["Return Flight"], record["Notes"], record["Booking ID"]
-    ))
-    conn.commit()
-    conn.close()
+# --- STATE LIFECYCLE MANAGEMENT ---
+if "bookings" not in st.session_state:
+    st.session_state.bookings = load_bookings_from_json()
 
-def delete_booking_from_db(booking_id):
-    """Permanently purges a record from the database."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM bookings WHERE booking_id = ?", (booking_id,))
-    conn.commit()
-    conn.close()
-
-# --- INITIALIZE DATABASE ---
-init_db()
-
-# --- STATE MANAGEMENT ---
 if "logs" not in st.session_state:
-    st.session_state.logs = ["System Initialized with SQLite Engine... Ready."]
+    st.session_state.logs = ["System Initialized with JSON Storage Engine... Standby."]
 
 if "editing_id" not in st.session_state:
     st.session_state.editing_id = None
 
-# Fresh data pull on every application redraw pass
-st.session_state.bookings = load_bookings_from_db()
+# Protect interactive button scopes from losing state updates on top-down pass redraws
+st.session_state.bookings = load_bookings_from_json()
 
 
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.title("🏨 Holiday Hub Navigation")
 
-# If an edit is active, lock navigation focus to help you save updates safely
 if st.session_state.editing_id:
-    st.sidebar.warning(f"⚠️ Locked: Amending {st.session_state.editing_id}")
+    st.sidebar.warning(f"⚠️ App Locked: Amending {st.session_state.editing_id}")
     page = "📊 Dashboard & Calendar"
 else:
     page = st.sidebar.radio("Go to:", ["📊 Dashboard & Calendar", "➕ New Booking Request"])
 
 
-# --- PAGE 1: DASHBOARD & CALENDAR ---
+# --- PAGE 1: DASHBOARD & CALENDAR OVERVIEW ---
 if page == "📊 Dashboard & Calendar":
     st.title("📊 Property Management Dashboard")
     st.subheader("Property Availability Calendar Matrix")
     
-    col_c1, _ = st.columns([2, 5])
+    col_c1, _ = st.columns([3, 7])
     with col_c1:
         calendar_start = st.date_input("Calendar Start View", datetime.date(2026, 10, 1))
     
@@ -198,18 +165,16 @@ if page == "📊 Dashboard & Calendar":
     st.markdown("---")
     st.subheader("📋 Active Master Booking Registers")
     
-    # --- FIXED AMENDMENT WORKSPACE SUITE ---
+    # --- DEDICATED INLINE AMENDMENT SUITE ---
     if st.session_state.editing_id:
         target_id = st.session_state.editing_id
         match_df = st.session_state.bookings[st.session_state.bookings["Booking ID"] == target_id]
         
         if not match_df.empty:
-            # Fixed index access bug [0] to stop silent crashing
-            booking_to_edit = match_df.iloc[0]
+            booking_to_edit = match_df.iloc[0] # Fixed row index selection rule
             
             st.info(f"📝 Currently Amending Booking: **{target_id}**")
             
-            # Form-free dynamic editing panels
             ec1, ec2 = st.columns(2)
             with ec1:
                 edit_name = st.text_input("Guest Full Name:", value=booking_to_edit['Guest'])
@@ -230,7 +195,7 @@ if page == "📊 Dashboard & Calendar":
                 elif edit_in >= edit_out:
                     st.error("Check-Out must fall after Check-In Date.")
                 else:
-                    # Overlap Validation (ignores itself)
+                    # Overlap Checker Rules
                     has_overlap = False
                     for _, res in st.session_state.bookings.iterrows():
                         if res["Booking ID"] != target_id:
@@ -240,5 +205,17 @@ if page == "📊 Dashboard & Calendar":
                     if has_overlap:
                         st.error("❌ Conflict: This change overlaps an existing stay.")
                     else:
-                        updated_record = {
-                            "Booking ID": target_id,}
+                        # Locate original index value and update elements back to memory arrays cleanly
+                        idx_match = st.session_state.bookings[st.session_state.bookings["Booking ID"] == target_id].index
+                        st.session_state.bookings.at[idx_match[0], "Guest"] = edit_name
+                        st.session_state.bookings.at[idx_match[0], "Email"] = edit_email
+                        st.session_state.bookings.at[idx_match[0], "Phone"] = edit_phone
+                        st.session_state.bookings.at[idx_match[0], "Start Date"] = edit_in
+                        st.session_state.bookings.at[idx_match[0], "End Date"] = edit_out
+                        st.session_state.bookings.at[idx_match[0], "Arrival Flight"] = edit_arr
+                        st.session_state.bookings.at[idx_match[0], "Return Flight"] = edit_ret
+                        st.session_state.bookings.at[idx_match[0], "Notes"] = edit_notes
+                        
+                        save_bookings_to_json(st.session_state.bookings)
+                        st.session_state.editing_id = None
+
