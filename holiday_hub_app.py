@@ -244,4 +244,39 @@ elif page == "➕ New Booking Request":
                         break
                 
                 if has_overlap:
+                    st.error("❌ Date Conflict: The property is already reserved during those selected dates. Please check the dashboard matrix.")
+                else:
+                    new_id = f"BK-{len(st.session_state.bookings) + 1001}"
+                    new_record = {
+                        "Booking ID": new_id,
+                        "Guest": guest_name,
+                        "Email": guest_email,
+                        "Start Date": check_in,
+                        "End Date": check_out,
+                        "Phone": guest_phone,
+                        "Flight Info": flight_info,
+                        "Notes": guest_notes
+                    }
+                    
+                    st.session_state.bookings = pd.concat([st.session_state.bookings, pd.DataFrame([new_record])], ignore_index=True)
+                    save_bookings(st.session_state.bookings)
+                    
+                    log_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    simulated_log = (
+                        f"[{log_timestamp}] EMAIL DISPATCHED to {guest_email}\n"
+                        f"Subject: Reservation Confirmed - Receipt {new_id}\n"
+                        f"Guest: {guest_name} | Contact: {guest_phone if guest_phone else 'N/A'}\n"
+                        f"Period: {check_in} -> {check_out}\n"
+                        f"Flight Tracking: {flight_info if flight_info else 'None Provided'}\n"
+                        f"Notes: {guest_notes if guest_notes else 'None'}\n"
+                        f"Status: System Confirmed Allocation Cleared."
+                    )
+                    st.session_state.logs.append(simulated_log)
+                    
+                    st.markdown(
+                        f'''<div style="background-color: #28A745; color: white; padding: 15px; border-radius: 6px; margin-bottom:15px;">
+                        <strong>🎉 Reservation Success!</strong> Booking <code>{new_id}</code> registered successfully. A confirmation simulation has been dispatched to your system log container panel.
+                        </div>''', 
+                        unsafe_allow_html=True
+                    )
 
