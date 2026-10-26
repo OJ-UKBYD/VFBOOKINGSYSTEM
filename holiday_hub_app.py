@@ -35,7 +35,7 @@ def init_db():
     ''')
     conn.commit()
     
-    # Check if database is empty to inject seed data cleanly
+    # Check if database is empty to inject clean fallback entries if needed
     cursor.execute("SELECT COUNT(*) FROM bookings")
     if cursor.fetchone() == 0:
         seed_data = [
@@ -111,29 +111,31 @@ def delete_booking_from_db(booking_id):
     conn.commit()
     conn.close()
 
-# --- INITIALIZE RELATIONAL ENVIRONMENT ---
+# --- INITIALIZE DATABASE ARCHITECTURE ---
 init_db()
 
-# --- STATE MANAGEMENT ---
+# --- STATE LIFECYCLE MANAGEMENT ---
 if "bookings" not in st.session_state:
     st.session_state.bookings = load_bookings_from_db()
 
 if "logs" not in st.session_state:
-    st.session_state.logs = ["System Initialized with SQLite Persistence engine... Connected."]
+    st.session_state.logs = ["System Initialized with SQLite Engine Core... Connected ready."]
 
 if "editing_id" not in st.session_state:
     st.session_state.editing_id = None
+
+# Always grab the freshest master state data row sequence on refresh passes
+st.session_state.bookings = load_bookings_from_db()
 
 
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.title("🏨 Holiday Hub Navigation")
 page = st.sidebar.radio("Go to:", ["📊 Dashboard & Calendar", "➕ New Booking Request"])
-
 st.sidebar.markdown("---")
-st.sidebar.info("💡 **Tip:** Real SQLite backend engine guarantees data safety when hot-reloading code modifications.")
+st.sidebar.info("💡 **Tip:** SQLite architecture ensures your data persists even if you make live code adjustments.")
 
 
-# --- PAGE 1: DASHBOARD & CALENDAR ---
+# --- PAGE 1: DASHBOARD & CALENDAR OVERVIEW ---
 if page == "📊 Dashboard & Calendar":
     st.title("📊 Property Management Dashboard")
     st.subheader("Property Availability Calendar Matrix")
@@ -195,43 +197,41 @@ if page == "📊 Dashboard & Calendar":
     st.markdown("---")
     st.subheader("📋 Active Master Booking Registers")
     
-    if st.session_state.bookings.empty:
-        st.info("No active reservations detected.")
-    else:
-        for idx, row in st.session_state.bookings.iterrows():
-            bid = row['Booking ID']
-            with st.expander(f"👤 Booking ID: {bid} — Guest: {row['Guest']} ({row['Start Date']} to {row['End Date']})"):
+    # --- MODULAR AMENDMENT SUITE WORKSPACE ---
+    if st.session_state.editing_id:
+        # Pull active targeted booking metadata out cleanly
+        target_id = st.session_state.editing_id
+        match_df = st.session_state.bookings[st.session_state.bookings["Booking ID"] == target_id]
+        
+        if not match_df.empty:
+            booking_to_edit = match_df.iloc[0]
+            st.warning(f"📝 Currently Amending Booking: {target_id}")
+            
+            # Form-free editor box to bypass layout traps
+            with st.container():
+                ec1, ec2 = st.columns(2)
+                with ec1:
+                    edit_name = st.text_input("Guest Full Name:", value=booking_to_edit['Guest'])
+                    edit_email = st.text_input("Email Address:", value=booking_to_edit['Email'])
+                    edit_phone = st.text_input("Phone Number:", value=booking_to_edit['Phone'])
+                with ec2:
+                    edit_in = st.date_input("Check-In Date:", value=booking_to_edit['Start Date'])
+                    edit_out = st.date_input("Check-Out Date:", value=booking_to_edit['End Date'])
+                    edit_arr = st.text_input("Arrival Flight Code:", value=booking_to_edit['Arrival Flight'])
+                    edit_ret = st.text_input("Return Flight Code:", value=booking_to_edit['Return Flight'])
+                    
+                edit_notes = st.text_area("Reservation Notes:", value=booking_to_edit['Notes'])
                 
-                if st.session_state.editing_id == bid:
-                    st.markdown("#### 📝 Edit Booking Information")
-                    with st.form(f"edit_form_{bid}", clear_on_submit=False):
-                        e_c1, e_c2 = st.columns(2)
-                        with e_c1:
-                            edit_name = st.text_input("Guest Name:", value=row['Guest'])
-                            edit_email = st.text_input("Email:", value=row['Email'])
-                            edit_phone = st.text_input("Phone:", value=row['Phone'])
-                        with e_c2:
-                            edit_in = st.date_input("Check-In Date:", value=row['Start Date'])
-                            edit_out = st.date_input("Check-Out Date:", value=row['End Date'])
-                            edit_arr = st.text_input("Arrival Flight:", value=row['Arrival Flight'])
-                            edit_ret = st.text_input("Return Flight:", value=row['Return Flight'])
-                            
-                        edit_notes = st.text_area("Notes:", value=row['Notes'])
-                        
-                        btn_col1, btn_col2 = st.columns()
-                        with btn_col1:
-                            save_btn = st.form_submit_button("Save changes", type="primary")
-                        with btn_col2:
-                            cancel_edit = st.form_submit_button("Cancel")
-                            
-                        if save_btn:
-                            if not edit_name or not edit_email:
-                                st.error("Name and Email parameters are required.")
-                            elif edit_in >= edit_out:
-                                st.error("Check-Out must fall after Check-In.")
-                            else:
-                                has_overlap = False
-                                for _, res in st.session_state.bookings.iterrows():
-                                    if res["Booking ID"] != bid:
-                                        if (edit_in < res["End Date"]) and (edit_out > res["Start Date"]):
-                                            has_overlap = True
+                ctrl1, ctrl2, _ = st.columns([1, 1, 4])
+                if ctrl1.button("💾 Save Amendment", type="primary"):
+                    if not edit_name or not edit_email:
+                        st.error("Name and Email parameters are strictly required.")
+                    elif edit_in >= edit_out:
+                        st.error("Check-Out must fall cleanly after Check-In.")
+                    else:
+                        # Overlap verification check matching against other entries
+                        has_overlap = False
+                        for _, res in st.session_state.bookings.iterrows():
+                            if res["Booking ID"] != target_id:
+                                if (edit_in < res["End Date"]) and (edit_out > res["Start Date"]):
+                                    has_overlap = True
