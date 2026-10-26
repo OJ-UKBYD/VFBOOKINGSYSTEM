@@ -227,22 +227,18 @@ elif page == "➕ New Booking Request":
                     if (check_in <= res["End Date"]) and (check_out >= res["Start Date"]):
                         has_overlap = True
                         break
-                
-                if has_overlap:
-                    st.error("❌ Date Conflict: The property is already reserved during those selected dates.")
-                else:
+                                else:
                     new_id = f"BK-{len(st.session_state.bookings) + 1001}"
-                                        new_id = f"BK-{len(st.session_state.bookings) + 1001}"
                     new_record = {
                         "Booking ID": new_id,
                         "Guest": guest_name,
                         "Email": guest_email,
-                        "Start Date": check_in,   # Captured natively as date object
-                        "End Date": check_out,     # Captured natively as date object
+                        "Start Date": check_in,
+                        "End Date": check_out,
                         "Phone": guest_phone,
                         "Flight Info": flight_info,
                         "Notes": guest_notes
-                    } # <-- MAKE SURE THIS BRACKET IS CLOSED
+                    }
                     
                     st.session_state.bookings = pd.concat([st.session_state.bookings, pd.DataFrame([new_record])], ignore_index=True)
                     save_bookings(st.session_state.bookings)
