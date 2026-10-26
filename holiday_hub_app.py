@@ -115,7 +115,6 @@ def delete_booking_from_db(booking_id):
 init_db()
 
 # --- STATE MANAGEMENT ---
-# Load data into session state ONLY once upon initialization to protect interactive triggers
 if "bookings" not in st.session_state:
     st.session_state.bookings = load_bookings_from_db()
 
@@ -219,10 +218,11 @@ if page == "📊 Dashboard & Calendar":
                             
                         edit_notes = st.text_area("Notes:", value=row['Notes'])
                         
-                        f_col1, f_col2 = st.columns()
-                        with f_col1:
+                        # Fixed Button Section: Clean, side-by-side action controls with no sub-column indentation traps
+                        btn_col1, btn_col2 = st.columns([1, 6])
+                        with btn_col1:
                             save_btn = st.form_submit_button("Save changes", type="primary")
-                        with f_col2:
+                        with btn_col2:
                             cancel_edit = st.form_submit_button("Cancel")
                             
                         if save_btn:
@@ -234,4 +234,3 @@ if page == "📊 Dashboard & Calendar":
                                 has_overlap = False
                                 for _, res in st.session_state.bookings.iterrows():
                                     if res["Booking ID"] != bid:
-
