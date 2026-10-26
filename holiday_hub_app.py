@@ -213,5 +213,3 @@ if page == "📊 Dashboard & Calendar":
                                     st.toast("Booking details updated successfully!")
                                     st.rerun()
                                     
-                        if cancel_btn:
-
