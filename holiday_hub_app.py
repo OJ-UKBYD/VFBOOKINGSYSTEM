@@ -175,8 +175,8 @@ if page == "📊 Dashboard & Calendar":
                         
                         edit_notes = st.text_area("Reservation Notes:", value=row['Notes'])
                         
-                        b1, b2 = st.columns([1, 8])
-                        save_btn = b1.form_submit_button("Save", type="primary")
+                        b1, b2 = st.columns(2)
+                        save_btn = b1.form_submit_button("Save Changes", type="primary")
                         cancel_btn = b2.form_submit_button("Cancel")
                         
                         if save_btn:
@@ -195,7 +195,7 @@ if page == "📊 Dashboard & Calendar":
                                 if has_overlap:
                                     st.error("❌ Date Conflict: The modified dates overlap another booking.")
                                 else:
-                                    # Write back to state row matching index criteria
+                                    # Find matching index and save
                                     match_idx = st.session_state.bookings[st.session_state.bookings['Booking ID'] == bid].index
                                     st.session_state.bookings.at[match_idx, "Guest"] = edit_name
                                     st.session_state.bookings.at[match_idx, "Email"] = edit_email
@@ -211,4 +211,3 @@ if page == "📊 Dashboard & Calendar":
                                     st.toast("Booking updated successfully!")
                                     st.rerun()
                                     
-                        if cancel_btn:
