@@ -4,6 +4,7 @@ import datetime
 import calendar
 import sqlite3
 import os
+import time
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -36,7 +37,7 @@ def init_db():
     
     # Check if database is empty to inject seed data cleanly
     cursor.execute("SELECT COUNT(*) FROM bookings")
-    if cursor.fetchone()[0] == 0:
+    if cursor.fetchone() == 0:
         seed_data = [
             ("BK-1001", "Alice Smith", "alice@example.com", "2026-10-05", "2026-10-12", "+1 555-0199", "BA173", "BA174", "Prefers early check-in if possible."),
             ("BK-1002", "Bob Jones", "bob@example.com", "2026-10-15", "2026-10-20", "", "", "", "")
@@ -55,7 +56,6 @@ def load_bookings_from_db():
     conn.close()
     
     if not df.empty:
-        # Standardise headers back to match application business rules
         df.rename(columns={
             "booking_id": "Booking ID",
             "guest_name": "Guest",
@@ -67,11 +67,9 @@ def load_bookings_from_db():
             "return_flight": "Return Flight",
             "notes": "Notes"
         }, inplace=True)
-        # Enforce strong typing for datetime objects
         df["Start Date"] = pd.to_datetime(df["Start Date"]).dt.date
         df["End Date"] = pd.to_datetime(df["End Date"]).dt.date
     else:
-        # Emergency schema fallback structure
         df = pd.DataFrame(columns=["Booking ID", "Guest", "Email", "Start Date", "End Date", "Phone", "Arrival Flight", "Return Flight", "Notes"])
     return df
 
@@ -117,6 +115,7 @@ def delete_booking_from_db(booking_id):
 init_db()
 
 # --- STATE MANAGEMENT ---
+# Load data into session state ONLY once upon initialization to protect interactive triggers
 if "bookings" not in st.session_state:
     st.session_state.bookings = load_bookings_from_db()
 
@@ -125,9 +124,6 @@ if "logs" not in st.session_state:
 
 if "editing_id" not in st.session_state:
     st.session_state.editing_id = None
-
-# Refresh state data on top-down stream processing pass to keep views unified
-st.session_state.bookings = load_bookings_from_db()
 
 
 # --- SIDEBAR NAVIGATION ---
@@ -236,4 +232,6 @@ if page == "📊 Dashboard & Calendar":
                                 st.error("Check-Out must fall after Check-In.")
                             else:
                                 has_overlap = False
+                                for _, res in st.session_state.bookings.iterrows():
+                                    if res["Booking ID"] != bid:
 
