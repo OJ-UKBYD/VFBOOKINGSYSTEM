@@ -214,7 +214,7 @@ elif page == "➕ New Booking Request":
         
         submit_btn = st.form_submit_button("Verify & Dispatch Booking")
         
-        if submit_btn:
+                if submit_btn:
             if not guest_name:
                 st.error("Missing Requirement: Please provide a guest name.")
             elif not guest_email:
@@ -227,7 +227,10 @@ elif page == "➕ New Booking Request":
                     if (check_in <= res["End Date"]) and (check_out >= res["Start Date"]):
                         has_overlap = True
                         break
-                                else:
+                
+                if has_overlap:
+                    st.error("❌ Date Conflict: The property is already reserved during those selected dates.")
+                else:
                     new_id = f"BK-{len(st.session_state.bookings) + 1001}"
                     new_record = {
                         "Booking ID": new_id,
