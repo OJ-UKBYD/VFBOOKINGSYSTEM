@@ -218,8 +218,7 @@ if page == "📊 Dashboard & Calendar":
                             
                         edit_notes = st.text_area("Notes:", value=row['Notes'])
                         
-                        # Fixed Button Section: Clean, side-by-side action controls with no sub-column indentation traps
-                        btn_col1, btn_col2 = st.columns([1, 6])
+                        btn_col1, btn_col2 = st.columns()
                         with btn_col1:
                             save_btn = st.form_submit_button("Save changes", type="primary")
                         with btn_col2:
@@ -234,3 +233,5 @@ if page == "📊 Dashboard & Calendar":
                                 has_overlap = False
                                 for _, res in st.session_state.bookings.iterrows():
                                     if res["Booking ID"] != bid:
+                                        if (edit_in < res["End Date"]) and (edit_out > res["Start Date"]):
+                                            has_overlap = True
