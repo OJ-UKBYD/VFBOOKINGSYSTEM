@@ -13,7 +13,9 @@ st.set_page_config(
 )
 
 # --- DATABASE / DATA PERSISTENCE SIMULATION ---
-DB_FILE = "bookings_db.json"
+# We use v2 to completely detach from any old corrupted database structures
+DB_FILE = "bookings_v2_db.json"
+
 def load_bookings():
     if os.path.exists(DB_FILE):
         try:
@@ -22,7 +24,7 @@ def load_bookings():
                 return pd.DataFrame(data)
         except:
             pass
-    # Default mock data tailored to the single-property schema
+    # Clean baseline database structure layout
     return pd.DataFrame([
         {
             "Booking ID": "BK-1001", 
@@ -50,18 +52,32 @@ def save_bookings(df):
     df.to_json(DB_FILE, orient="records", indent=4)
 
 # --- STATE MANAGEMENT ---
-if "bookings" not in st.session_state:
-    st.session_state.bookings = load_bookings()
+# Overwrite session state structure to resolve hidden browser cache locks
+raw_df = load_bookings()
+
+# Fallback column checker assignment loops
+required_columns = {
+    "Booking ID": "BK-UNKNOWN",
+    "Guest": "Unknown Guest",
+    "Email": "no-email@example.com",
+    "Start Date": "2026-10-01",
+    "End Date": "2026-10-02",
+    "Phone": "",
+    "Flight Info": "",
+    "Notes": ""
+}
+
+for col, default_val in required_columns.items():
+    if col not in raw_df.columns:
+        raw_df[col] = default_val
+
+# Safely force update session variables clean matrix structures
+st.session_state.bookings = raw_df
 
 if "logs" not in st.session_state:
     st.session_state.logs = ["System Initialized... Waiting for reservation inputs."]
 
-# Ensure dataframe columns exist for optional parameters
-for col in ["Phone", "Flight Info", "Notes"]:
-    if col not in st.session_state.bookings.columns:
-        st.session_state.bookings[col] = ""
-
-# Convert dates cleanly for comparisons
+# Convert dates cleanly for comparisons safely now
 st.session_state.bookings["Start Date"] = pd.to_datetime(st.session_state.bookings["Start Date"]).dt.date
 st.session_state.bookings["End Date"] = pd.to_datetime(st.session_state.bookings["End Date"]).dt.date
 
@@ -151,7 +167,6 @@ if page == "📊 Dashboard & Calendar":
             with st.container():
                 b_col1, b_col2, b_col3 = st.columns([1.5, 1.5, 1])
                 
-                # Display basic details + Essential Email
                 b_col1.markdown(
                     f"""**ID:** `{row['Booking ID']}` <br> 
                     👤 **Guest:** {row['Guest']} <br> 
@@ -159,13 +174,12 @@ if page == "📊 Dashboard & Calendar":
                     unsafe_allow_html=True
                 )
                 
-                # Display dates + Optional fields if filled
                 phone_str = row['Phone'] if row['Phone'] else "None"
                 flight_str = row['Flight Info'] if row['Flight Info'] else "None"
                 notes_str = row['Notes'] if row['Notes'] else "None"
                 
                 b_col2.markdown(
-                    f"""📅 **Timeline:** {row['Start Date']} to {row['End Date']} <br>
+                    f"""**Timeline:** {row['Start Date']} to {row['End Date']} <br>
                     📞 **Phone:** {phone_str} | ✈️ **Flight:** {flight_str} <br>
                     📝 **Notes:** <em>{notes_str}</em>""", 
                     unsafe_allow_html=True
@@ -223,7 +237,6 @@ elif page == "➕ New Booking Request":
             elif check_in >= check_out:
                 st.error("Error: Check-Out Date must fall cleanly after your chosen Check-In Date.")
             else:
-                # Check real overlap logic across the entire single-property timeline
                 has_overlap = False
                 for _, res in st.session_state.bookings.iterrows():
                     if (check_in <= res["End Date"]) and (check_out >= res["Start Date"]):
@@ -231,8 +244,4 @@ elif page == "➕ New Booking Request":
                         break
                 
                 if has_overlap:
-                    st.error("❌ Date Conflict: The property is already reserved during those selected dates. Please check the dashboard matrix.")
-                else:
-                    # Create allocation log record entry
-                    new_id = f"BK-{len(st.session_state.bookings) + 1001}"
 
