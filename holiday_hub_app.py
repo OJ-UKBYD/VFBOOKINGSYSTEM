@@ -152,12 +152,62 @@ if page == "📅 Dashboard & Summary":
                         unsafe_html=True
                     )
                 else:
-                    st.markdown(
-    f'''<div style="background-color: #28A745; color: white; padding: 10px; border-radius: 5px;">
-    Available
-    </div>''', 
-    unsafe_allow_html=True
-)
+                    import datetime
+import calendar
+import streamlit as st
+
+# Assuming you have your start view date from your widget (e.g., October 2026)
+# Replace these with your actual widget variables if they are named differently:
+start_date = datetime.date(2026, 10, 1)  
+year = start_date.year
+month = start_date.month
+
+st.write(f"### 📅 {calendar.month_name[month]} {year}")
+
+# Get the matrix of weeks for the month
+cal = calendar.monthcalendar(year, month)
+
+# Create 7 columns for the days of the week headers
+days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+cols = st.columns(7)
+for i, day_name in enumerate(days_of_week):
+    cols[i].markdown(f"<p style='text-align:center; font-weight:bold; color:#888;'>{day_name}</p>", unsafe_allow_html=True)
+
+# Loop through each week and render the days
+for week in cal:
+    cols = st.columns(7)
+    for i, day in enumerate(week):
+        if day == 0:
+            # Empty space for days belonging to the previous/next month alignment
+            cols[i].write("")
+        else:
+            # --- CUSTOMIZE YOUR BACKEND LOGIC HERE ---
+            # Define if this specific date is booked or available
+            current_date = datetime.date(year, month, day)
+            is_available = True  # Replace with your booking check function (e.g., check_availability(current_date))
+            
+            # Styling decisions based on availability
+            bg_color = "#28A745" if is_available else "#DC3545"
+            status_text = "Available" if is_available else "Booked"
+            
+            # Render the friendly calendar cell
+            cols[i].markdown(
+                f'''<div style="
+                    background-color: {bg_color}; 
+                    color: white; 
+                    padding: 8px; 
+                    border-radius: 6px; 
+                    text-align: center; 
+                    margin-bottom: 8px;
+                    min-height: 70px;
+                    box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+                ">
+                    <span style="font-size: 14px; font-weight: bold; display: block;">{day}</span>
+                    <span style="font-size: 11px; opacity: 0.9;">{status_text}</span>
+                </div>''', 
+                unsafe_allow_html=True
+            )
+
                     
     # Expandable Summary Area
     st.markdown("---")
