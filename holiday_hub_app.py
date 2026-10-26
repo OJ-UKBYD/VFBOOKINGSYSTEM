@@ -178,8 +178,8 @@ if page == "📊 Dashboard & Calendar":
                             
                         edit_notes = st.text_area("Reservation Notes or Special Requests:", value=row['Notes'])
                         
-                        btn_col1, btn_col2 = st.columns([1, 10])
-                        save_btn = btn_col1.form_submit_button("Save", type="primary")
+                        btn_col1, btn_col2 = st.columns(2)
+                        save_btn = btn_col1.form_submit_button("Save Changes", type="primary")
                         cancel_btn = btn_col2.form_submit_button("Cancel")
                         
                         if save_btn:
@@ -214,3 +214,4 @@ if page == "📊 Dashboard & Calendar":
                                     st.rerun()
                                     
                         if cancel_btn:
+
