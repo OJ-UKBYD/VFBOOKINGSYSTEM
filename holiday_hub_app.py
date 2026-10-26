@@ -154,7 +154,7 @@ if page == "📅 Dashboard & Summary":
                 else:
                     st.markdown(
     f'''<div style="background-color: #28A745; color: white; padding: 10px; border-radius: 5px;">
-    Success message or text here
+    Available
     </div>''', 
     unsafe_allow_html=True
 )
