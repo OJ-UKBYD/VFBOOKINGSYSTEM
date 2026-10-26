@@ -14,7 +14,6 @@ st.set_page_config(
 
 # --- DATABASE / DATA PERSISTENCE SIMULATION ---
 DB_FILE = "bookings_db.json"
-
 def load_bookings():
     if os.path.exists(DB_FILE):
         try:
