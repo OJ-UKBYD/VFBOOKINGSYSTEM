@@ -174,12 +174,27 @@ st.sidebar.info(
 )
 
 
+def jump_to_today():
+    """Reset the calendar selectors to the current month and year."""
+    st.session_state["calendar_year"] = TODAY.year
+    st.session_state["calendar_month"] = calendar.month_name[TODAY.month]
+
+
 # ============================================================
 # PAGE 1: DASHBOARD AND CALENDAR
 # ============================================================
 if page == "📊 Dashboard & Calendar":
     st.title("📊 Property Management Dashboard")
     st.subheader("Property Availability Calendar")
+
+    # One-click navigation back to the current month and year.
+    jump_col, _ = st.columns([1, 4])
+    with jump_col:
+        st.button(
+            "📅 Jump to today",
+            on_click=jump_to_today,
+            use_container_width=True,
+        )
 
     # Month and year selectors
     pick_col1, pick_col2 = st.columns([1, 2])
@@ -450,4 +465,3 @@ elif page == "➕ New Booking Request":
                     st.caption(
                         "This app records a simulated email log. It does not send a real email."
                     )
-
