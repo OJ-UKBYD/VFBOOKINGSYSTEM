@@ -397,36 +397,19 @@ if page == "📊 Dashboard & Calendar":
 
             
             week_cols[idx].markdown(
-                f"""
-                <div style="
-                    background:{bg_color};
-                    color:white;
-                    padding:8px 5px;
-                    border-radius:7px;
-                    text-align:center;
-                    margin-bottom:8px;
-                    min-height:94px;
-                    border:{border};
-                    box-sizing:border-box;
-                    overflow-wrap:anywhere;
-                ">
-                    <div style="
-                        font-size:16px;
-                        font-weight:700;
-                    ">{day}</div>
-
-                    {today_label}
-
-                    <div style="
-                        font-size:11px;
-                        font-weight:600;
-                        margin-top:6px;
-                        line-height:1.4;
-                    ">{status}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    f"""
+    <div style="background:{bg_color}; color:white; padding:8px 5px;
+                border-radius:7px; text-align:center; margin-bottom:8px;
+                min-height:94px; border:{border}; box-sizing:border-box;
+                overflow-wrap:anywhere;">
+        <div style="font-size:16px; font-weight:700;">{day}</div>
+        {today_label}
+        <div style="font-size:11px; font-weight:600; margin-top:6px;
+                    line-height:1.4;">{status}</div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 
     # ========================================================
