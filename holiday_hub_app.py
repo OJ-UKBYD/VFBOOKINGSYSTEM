@@ -337,13 +337,14 @@ if page == "📊 Dashboard & Calendar":
 
                     {today_label}
 
-                    <span style="
-                        font-size:10px;
-                        display:block;
-                        white-space:normal;
-                        overflow-wrap:anywhere;
-                        margin-top:4px
-                    ">{status}</span>
+                    f"""<span style="
+    font-size:11px;
+    font-weight:600;
+    display:block;
+    white-space:normal;
+    overflow-wrap:anywhere;
+    margin-top:6px;
+">{status}</span>"""
                 </div>
                 """,
                 unsafe_allow_html=True
