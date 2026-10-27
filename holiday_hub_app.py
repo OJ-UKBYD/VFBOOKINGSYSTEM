@@ -1,486 +1,722 @@
+
 import streamlit as st
 import pandas as pd
 import datetime
 import calendar
 import json
 import os
+import re
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="Holiday Hub Booking System",
     page_icon="🏨",
-    layout="wide"
+    layout="wide",
 )
 
-# --- DATABASE / DATA PERSISTENCE ---
-# Google Sheets is used as the persistent backend.
-#
-# Streamlit secrets required:
-#
-# [gcp_service_account]
-# type = "service_account"
-# project_id = "your-project-id"
-# private_key_id = "..."
-# private_key = "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"
-# client_email = "..."
-# client_id = "..."
-# auth_uri = "https://accounts.google.com/o/oauth2/auth"
-# token_uri = "https://oauth2.googleapis.com/token"
-# auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-# client_x509_cert_url = "..."
-#
-# [google_sheets]
-# spreadsheet_id = "YOUR_GOOGLE_SHEET_ID"
-# worksheet_name = "Bookings"
-#
-# Install dependencies:
-#   pip install gspread google-auth
-
-import gspread
-from google.oauth2.service_account import Credentials
-
-SHEET_COLUMNS = [
-    "Booking ID",
-    "Guest",
-    "Email",
-    "Start Date",
-    "End Date",
-    "Phone",
-    "Flight Info",
-    "Notes",
+DB_FILE = "bookings_v3_db.json"
+COLUMNS = [
+    "Booking ID", "Guest", "Email", "Start Date",
+    "End Date", "Phone", "Flight Info", "Notes"
 ]
-
-@st.cache_resource
-def get_google_sheet():
-    if "gcp_service_account" not in st.secrets:
-        raise RuntimeError(
-            "Google Sheets is not configured. Add [gcp_service_account] "
-            "to Streamlit secrets."
-        )
-
-    spreadsheet_id = st.secrets.get("google_sheets", {}).get("spreadsheet_id")
-    worksheet_name = st.secrets.get("google_sheets", {}).get(
-        "worksheet_name", "Bookings"
-    )
-
-    if not spreadsheet_id:
-        raise RuntimeError(
-            "Missing google_sheets.spreadsheet_id in Streamlit secrets."
-        )
-
-    credentials = Credentials.from_service_account_info(
-        dict(st.secrets["gcp_service_account"]),
-        scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ],
-    )
-
-    client = gspread.authorize(credentials)
-    spreadsheet = client.open_by_key(spreadsheet_id)
-
-    try:
-        worksheet = spreadsheet.worksheet(worksheet_name)
-    except gspread.WorksheetNotFound:
-        worksheet = spreadsheet.add_worksheet(
-            title=worksheet_name,
-            rows=1000,
-            cols=len(SHEET_COLUMNS),
-        )
-        worksheet.append_row(SHEET_COLUMNS)
-
-    return worksheet
+TODAY = datetime.date.today()
 
 
+# --- DATABASE / DATA PERSISTENCE ---
 def load_bookings():
-    worksheet = get_google_sheet()
-    records = worksheet.get_all_records()
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as file:
+                data = json.load(file)
 
-    if not records:
-        worksheet.update("A1:H1", [SHEET_COLUMNS])
-        return pd.DataFrame(columns=SHEET_COLUMNS)
+            df = pd.DataFrame(data)
 
-    df = pd.DataFrame(records)
+            for column in COLUMNS:
+                if column not in df.columns:
+                    df[column] = ""
 
-    for col in SHEET_COLUMNS:
-        if col not in df.columns:
-            df[col] = ""
+            if not df.empty:
+                for column in ("Start Date", "End Date"):
+                    df[column] = pd.to_datetime(
+                        df[column], errors="coerce"
+                    ).dt.date
 
-    df = df[SHEET_COLUMNS]
+                df["Booking ID"] = df["Booking ID"].astype(str)
+                df["Guest"] = df["Guest"].fillna("").astype(str)
 
-    if not df.empty:
-        df["Start Date"] = pd.to_datetime(
-            df["Start Date"], errors="coerce"
-        ).dt.date
-        df["End Date"] = pd.to_datetime(
-            df["End Date"], errors="coerce"
-        ).dt.date
+                for column in ("Email", "Phone", "Flight Info", "Notes"):
+                    df[column] = df[column].fillna("").astype(str)
 
-    return df
+                df = df[COLUMNS]
+
+            return df
+
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            st.warning(
+                "The booking data file could not be read. "
+                "A fresh sample register has been loaded. "
+                "Check the JSON file before saving if it contains "
+                "important bookings."
+            )
+
+    # Sample bookings for a first run
+    return pd.DataFrame([
+        {
+            "Booking ID": "BK-1001",
+            "Guest": "Alice Smith",
+            "Email": "alice@example.com",
+            "Start Date": datetime.date(2026, 10, 5),
+            "End Date": datetime.date(2026, 10, 12),
+            "Phone": "+1 555-0199",
+            "Flight Info": "BA173",
+            "Notes": "Prefers early check-in if possible.",
+        },
+        {
+            "Booking ID": "BK-1002",
+            "Guest": "Bob Jones",
+            "Email": "bob@example.com",
+            "Start Date": datetime.date(2026, 10, 15),
+            "End Date": datetime.date(2026, 10, 20),
+            "Phone": "",
+            "Flight Info": "",
+            "Notes": "",
+        },
+    ], columns=COLUMNS)
 
 
 def save_bookings(df):
-    worksheet = get_google_sheet()
+    saved = df.copy()
 
-    df_to_save = df.copy()
-
-    for col in SHEET_COLUMNS:
-        if col not in df_to_save.columns:
-            df_to_save[col] = ""
-
-    df_to_save = df_to_save[SHEET_COLUMNS]
-
-    for col in ["Start Date", "End Date"]:
-        df_to_save[col] = df_to_save[col].apply(
-            lambda x: x.isoformat()
-            if isinstance(x, (datetime.date, datetime.datetime))
-            else ("" if pd.isna(x) else str(x))
+    for column in ("Start Date", "End Date"):
+        saved[column] = saved[column].apply(
+            lambda value: value.isoformat()
+            if isinstance(
+                value,
+                (datetime.date, datetime.datetime, pd.Timestamp)
+            )
+            else str(value)
         )
 
-    df_to_save = df_to_save.fillna("")
-    values = [SHEET_COLUMNS] + df_to_save.astype(str).values.tolist()
-
-    # Replace the sheet contents in one operation.
-    worksheet.clear()
-    worksheet.update(
-        range_name=f"A1:H{len(values)}",
-        values=values,
+    saved.to_json(
+        DB_FILE,
+        orient="records",
+        indent=4,
+        force_ascii=False
     )
 
 
-# --- STATE MANAGEMENT ---
+def next_booking_id(df):
+    numbers = []
+
+    for booking_id in df.get(
+        "Booking ID", pd.Series(dtype=str)
+    ).astype(str):
+        match = re.fullmatch(r"BK-(\d+)", booking_id.strip())
+
+        if match:
+            numbers.append(int(match.group(1)))
+
+    return f"BK-{max(numbers, default=1000) + 1}"
+
+
+# --- AVAILABILITY CHECKS ---
+def has_date_conflict(bookings, check_in, check_out, exclude_id=None):
+    """
+    Check occupied nights.
+
+    The checkout day is available for another guest to check in.
+    When editing, exclude the booking being amended.
+    """
+    for _, booking in bookings.iterrows():
+        if (
+            exclude_id is not None
+            and str(booking["Booking ID"]) == str(exclude_id)
+        ):
+            continue
+
+        start = booking["Start Date"]
+        end = booking["End Date"]
+
+        if pd.isna(start) or pd.isna(end):
+            continue
+
+        if check_in < end and check_out > start:
+            return (
+                True,
+                str(booking["Booking ID"]),
+                str(booking["Guest"])
+            )
+
+    return False, None, None
+
+
+def valid_email_or_blank(email):
+    email = email.strip()
+
+    return (
+        not email
+        or bool(re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email))
+    )
+
+
+# --- SESSION STATE ---
 if "bookings" not in st.session_state:
-    try:
-        st.session_state.bookings = load_bookings()
-    except Exception as e:
-        st.error(f"Google Sheets connection failed: {e}")
-        st.stop()
+    st.session_state.bookings = load_bookings()
 
 if "logs" not in st.session_state:
-    st.session_state.logs = ["System Initialized... Waiting for reservation inputs."]
+    st.session_state.logs = [
+        "System initialised. Waiting for reservation inputs."
+    ]
 
+for column in COLUMNS:
+    if column not in st.session_state.bookings.columns:
+        st.session_state.bookings[column] = ""
 
-if "editing_booking_id" not in st.session_state:
-    st.session_state.editing_booking_id = None
-
-# Ensure all critical optional columns exist safely
-required_columns = ["Phone", "Flight Info", "Notes", "Email"]
-for col in required_columns:
-    if col not in st.session_state.bookings.columns:
-        st.session_state.bookings[col] = ""
+st.session_state.bookings = st.session_state.bookings[COLUMNS]
 
 
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.title("🏨 Holiday Hub Navigation")
-st.sidebar.caption("☁️ Booking data is stored in Google Sheets")
-page = st.sidebar.radio("Go to:", ["📊 Dashboard & Calendar", "➕ New Booking Request"])
+
+page = st.sidebar.radio(
+    "Go to:",
+    [
+        "📊 Dashboard & Calendar",
+        "➕ New Booking Request"
+    ]
+)
 
 st.sidebar.markdown("---")
-st.sidebar.info("💡 **Tip:** New bookings instantly update the calendar grid block view on the dashboard page.")
+st.sidebar.info(
+    "New bookings and amended reservations update "
+    "the calendar automatically."
+)
 
 
-# --- PAGE 1: DASHBOARD & CALENDAR ---
+# ============================================================
+# PAGE 1: DASHBOARD AND CALENDAR
+# ============================================================
 if page == "📊 Dashboard & Calendar":
+
     st.title("📊 Property Management Dashboard")
-    st.subheader("Property Availability Calendar Matrix")
-    
-    col_c1, col_c2 = st.columns(2)
-    with col_c1:
-        calendar_start = st.date_input("Calendar Start View", datetime.date(2026, 10, 1))
-    
-    year = calendar_start.year
-    month = calendar_start.month
-    
-    st.write(f"##### Grid view for {calendar.month_name[month]} {year}")
-    
-    cal = calendar.monthcalendar(year, month)
-    days_of_week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    
+    st.subheader("Property Availability Calendar")
+
+    # --- MONTH AND YEAR SELECTORS ---
+    pick_col1, pick_col2 = st.columns([1, 2])
+
+    with pick_col1:
+        year_options = list(
+            range(TODAY.year - 5, TODAY.year + 11)
+        )
+
+        selected_year = st.selectbox(
+            "Year",
+            options=year_options,
+            index=5
+        )
+
+    with pick_col2:
+        month_names = list(calendar.month_name)[1:]
+
+        selected_month_name = st.selectbox(
+            "Month",
+            options=month_names,
+            index=TODAY.month - 1
+        )
+
+    year = int(selected_year)
+    month = month_names.index(selected_month_name) + 1
+
+    st.markdown(
+        f"#### {calendar.month_name[month]} {year}"
+    )
+
+    st.caption(
+        "Green = available · Red = booked · "
+        "Blue outline = today"
+    )
+
+    month_grid = calendar.monthcalendar(year, month)
+
+    days_of_week = [
+        "Mon", "Tue", "Wed", "Thu",
+        "Fri", "Sat", "Sun"
+    ]
+
+    # --- CALENDAR HEADINGS ---
     header_cols = st.columns(7)
+
     for idx, day_name in enumerate(days_of_week):
-        header_cols[idx].markdown(f"<p style='text-align:center; font-weight:bold; color:#888; margin-bottom:2px;'>{day_name}</p>", unsafe_allow_html=True)
-        
-    for week in cal:
+        header_cols[idx].markdown(
+            f"""
+            <div style="
+                text-align:center;
+                font-weight:700;
+                color:#888;
+                padding:4px;
+            ">
+                {day_name}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    # --- CALENDAR GRID ---
+    for week in month_grid:
         week_cols = st.columns(7)
+
         for idx, day in enumerate(week):
+
             if day == 0:
-                week_cols[idx].write("")
-            else:
-                current_date = datetime.date(year, month, day)
-                
-                is_booked = False
-                guest_label = ""
-                for _, row in st.session_state.bookings.iterrows():
-                    if row["Start Date"] <= current_date <= row["End Date"]:
-                        is_booked = True
-                        guest_label = row["Guest"]
-                        break
-                        
-                bg_color = "#DC3545" if is_booked else "#28A745"
-                status_text = f"Booked: {guest_label}" if is_booked else "Available"
-                
                 week_cols[idx].markdown(
-                    f'''<div style="
-                        background-color: {bg_color}; 
-                        color: white; 
-                        padding: 10px; 
-                        border-radius: 6px; 
-                        text-align: center; 
-                        margin-bottom: 8px;
-                        min-height: 65px;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                    ">
-                        <span style="font-size: 14px; font-weight: bold; display: block;">{day}</span>
-                        <span style="font-size: 9px; opacity: 0.95; display: block;">{status_text}</span>
-                    </div>''', 
+                    "<div style='min-height:76px'></div>",
                     unsafe_allow_html=True
                 )
+                continue
 
+            current_date = datetime.date(year, month, day)
+
+            active_bookings = []
+
+            for _, booking in st.session_state.bookings.iterrows():
+                start = booking["Start Date"]
+                end = booking["End Date"]
+
+                # Checkout date is not an occupied night
+                if (
+                    pd.notna(start)
+                    and pd.notna(end)
+                    and start <= current_date < end
+                ):
+                    active_bookings.append(
+                        str(booking["Guest"])
+                    )
+
+            is_today = current_date == TODAY
+            is_booked = bool(active_bookings)
+
+            bg_color = "#DC3545" if is_booked else "#238636"
+
+            border = (
+                "3px solid #1687ff"
+                if is_today
+                else "1px solid rgba(255,255,255,0.18)"
+            )
+
+            status = (
+                ", ".join(active_bookings)
+                if is_booked
+                else "Available"
+            )
+
+            today_label = (
+                "<span style='font-size:10px;font-weight:700;"
+                "display:block;margin-top:2px'>TODAY</span>"
+                if is_today
+                else ""
+            )
+
+            week_cols[idx].markdown(
+                f"""
+                <div style="
+                    background:{bg_color};
+                    color:white;
+                    padding:8px 4px;
+                    border-radius:7px;
+                    text-align:center;
+                    margin-bottom:8px;
+                    min-height:76px;
+                    border:{border};
+                    box-sizing:border-box;
+                ">
+                    <span style="
+                        font-size:16px;
+                        font-weight:700;
+                        display:block
+                    ">{day}</span>
+
+                    {today_label}
+
+                    <span style="
+                        font-size:10px;
+                        display:block;
+                        white-space:normal;
+                        overflow-wrap:anywhere;
+                        margin-top:4px
+                    ">{status}</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    # --- BOOKING REGISTER ---
     st.markdown("---")
-    st.subheader("📋 Active Master Booking Registers")
-    
-    if st.session_state.bookings.empty:
-        st.info("No active reservations detected.")
+    st.subheader("📋 Booking Register")
+
+    bookings = st.session_state.bookings
+
+    if bookings.empty:
+        st.info("No reservations have been recorded.")
+
     else:
-        for idx, row in st.session_state.bookings.iterrows():
-            with st.container():
-                b_col1, b_col2, b_col3 = st.columns([1.5, 1.5, 1])
-                
-                b_col1.markdown(
-                    f"""**ID:** `{row['Booking ID']}` <br> 
-                    👤 **Guest:** {row['Guest']} <br> 
-                    ✉️ **Email:** {row['Email']}""", 
-                    unsafe_allow_html=True
+        for _, row in bookings.sort_values(
+            "Start Date", na_position="last"
+        ).iterrows():
+
+            booking_id = str(row["Booking ID"])
+            guest = str(row["Guest"])
+
+            with st.container(border=True):
+
+                info_col, dates_col, actions_col = st.columns(
+                    [1.3, 1.5, 1]
                 )
-                
-                phone_str = row['Phone'] if row['Phone'] else "None"
-                flight_str = row['Flight Info'] if row['Flight Info'] else "None"
-                notes_str = row['Notes'] if row['Notes'] else "None"
-                
-                b_col2.markdown(
-                    f"""📅 **Timeline:** {row['Start Date']} to {row['End Date']} <br>
-                    📞 **Phone:** {phone_str} | ✈️ **Flight:** {flight_str} <br>
-                    📝 **Notes:** <em>{notes_str}</em>""", 
-                    unsafe_allow_html=True
+
+                info_col.markdown(
+                    f"**{guest}**  \n"
+                    f"Booking ID: `{booking_id}`  \n"
+                    f"Email: {row['Email'] or 'Not provided'}"
                 )
-                
-                with b_col3:
-                    st.write("")
-                    edit_col, cancel_col = st.columns(2)
 
-                    with edit_col:
-                        if st.button("✏️ Edit", key=f"edit_{row['Booking ID']}"):
-                            st.session_state.editing_booking_id = row["Booking ID"]
-                            st.rerun()
+                info_col.markdown(
+                    f"Phone: {row['Phone'] or 'Not provided'}  \n"
+                    f"Flight: {row['Flight Info'] or 'Not provided'}"
+                )
 
-                    with cancel_col:
-                        if st.button("Cancel", key=f"del_{row['Booking ID']}", type="primary"):
-                            st.session_state.bookings = st.session_state.bookings[
-                                st.session_state.bookings["Booking ID"] != row["Booking ID"]
-                            ]
-                            save_bookings(st.session_state.bookings)
-                            if st.session_state.editing_booking_id == row["Booking ID"]:
-                                st.session_state.editing_booking_id = None
-                            st.toast("Booking removed successfully!")
-                            st.rerun()
+                dates_col.markdown(
+                    f"**Stay**  \n"
+                    f"{row['Start Date']} to {row['End Date']}  \n"
+                    f"**Notes:** {row['Notes'] or 'None'}"
+                )
 
-                if st.session_state.editing_booking_id == row["Booking ID"]:
-                    booking_id = row["Booking ID"]
-                    st.markdown(f"### ✏️ Edit Booking `{booking_id}`")
+                # --- EDIT AND CANCEL BUTTONS ---
+                with actions_col:
+
+                    if st.button(
+                        "Edit booking",
+                        key=f"edit_toggle_{booking_id}",
+                        use_container_width=True
+                    ):
+                        edit_key = f"editing_{booking_id}"
+
+                        st.session_state[edit_key] = not (
+                            st.session_state.get(edit_key, False)
+                        )
+
+                    if st.button(
+                        "Cancel booking",
+                        key=f"cancel_{booking_id}",
+                        type="secondary",
+                        use_container_width=True
+                    ):
+                        st.session_state.bookings = (
+                            st.session_state.bookings[
+                                st.session_state.bookings[
+                                    "Booking ID"
+                                ].astype(str) != booking_id
+                            ].reset_index(drop=True)
+                        )
+
+                        save_bookings(st.session_state.bookings)
+
+                        st.session_state.logs.append(
+                            f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}] "
+                            f"Booking {booking_id} cancelled."
+                        )
+
+                        st.toast("Booking cancelled.")
+                        st.rerun()
+
+                # --- AMEND BOOKING FORM ---
+                if st.session_state.get(
+                    f"editing_{booking_id}", False
+                ):
 
                     with st.form(f"edit_form_{booking_id}"):
-                        edit_col1, edit_col2 = st.columns(2)
 
-                        with edit_col1:
-                            edit_guest = st.text_input(
-                                "Primary Guest Full Name:",
-                                value=str(row["Guest"]),
+                        st.markdown(
+                            f"**Amend reservation {booking_id}**"
+                        )
+
+                        e1, e2 = st.columns(2)
+
+                        with e1:
+                            edited_guest = st.text_input(
+                                "Guest full name",
+                                value=guest,
                                 key=f"edit_guest_{booking_id}"
                             )
-                            edit_email = st.text_input(
-                                "Guest Email Address (optional):",
+
+                            edited_email = st.text_input(
+                                "Email (optional)",
                                 value=str(row["Email"] or ""),
-                                placeholder="Leave blank if not required",
                                 key=f"edit_email_{booking_id}"
                             )
 
-                        with edit_col2:
-                            edit_check_in = st.date_input(
-                                "Check-In Date",
-                                value=row["Start Date"],
-                                key=f"edit_check_in_{booking_id}"
-                            )
-                            edit_check_out = st.date_input(
-                                "Check-Out Date",
-                                value=row["End Date"],
-                                key=f"edit_check_out_{booking_id}"
-                            )
-
-                        edit_col3, edit_col4 = st.columns(2)
-
-                        with edit_col3:
-                            edit_phone = st.text_input(
-                                "Phone Number:",
+                            edited_phone = st.text_input(
+                                "Phone",
                                 value=str(row["Phone"] or ""),
                                 key=f"edit_phone_{booking_id}"
                             )
 
-                        with edit_col4:
-                            edit_flight = st.text_input(
-                                "Flight Details / Number:",
+                        with e2:
+                            edited_start = st.date_input(
+                                "Check-in",
+                                value=row["Start Date"],
+                                key=f"edit_start_{booking_id}"
+                            )
+
+                            edited_end = st.date_input(
+                                "Check-out",
+                                value=row["End Date"],
+                                key=f"edit_end_{booking_id}"
+                            )
+
+                            edited_flight = st.text_input(
+                                "Flight details",
                                 value=str(row["Flight Info"] or ""),
                                 key=f"edit_flight_{booking_id}"
                             )
 
-                        edit_notes = st.text_area(
-                            "Reservation Notes or Special Requests:",
+                        edited_notes = st.text_area(
+                            "Notes / special requests",
                             value=str(row["Notes"] or ""),
                             key=f"edit_notes_{booking_id}"
                         )
 
-                        save_edit = st.form_submit_button("💾 Save Changes", type="primary")
-                        close_edit = st.form_submit_button("Close Without Saving")
+                        save_edit = st.form_submit_button(
+                            "Save amendments"
+                        )
 
-                    if close_edit:
-                        st.session_state.editing_booking_id = None
-                        st.rerun()
+                        if save_edit:
 
-                    if save_edit:
-                        if not edit_guest.strip():
-                            st.error("Missing Requirement: Please provide a guest name.")
-                        elif edit_check_in >= edit_check_out:
-                            st.error("Error: Check-Out Date must fall cleanly after your chosen Check-In Date.")
-                        elif booking_has_overlap(
-                            edit_check_in,
-                            edit_check_out,
-                            exclude_booking_id=booking_id
-                        ):
-                            st.error("❌ Date Conflict: the property is already reserved during those selected dates.")
-                        else:
-                            booking_index = st.session_state.bookings[
-                                st.session_state.bookings["Booking ID"] == booking_id
-                            ].index
-
-                            if len(booking_index) == 1:
-                                idx = booking_index[0]
-                                st.session_state.bookings.at[idx, "Guest"] = edit_guest.strip()
-                                st.session_state.bookings.at[idx, "Email"] = edit_email.strip()
-                                st.session_state.bookings.at[idx, "Start Date"] = edit_check_in
-                                st.session_state.bookings.at[idx, "End Date"] = edit_check_out
-                                st.session_state.bookings.at[idx, "Phone"] = edit_phone.strip()
-                                st.session_state.bookings.at[idx, "Flight Info"] = edit_flight.strip()
-                                st.session_state.bookings.at[idx, "Notes"] = edit_notes.strip()
-
-                                save_bookings(st.session_state.bookings)
-                                log_booking_action(
-                                    "UPDATED",
-                                    booking_id,
-                                    edit_guest.strip(),
-                                    edit_email.strip(),
-                                    edit_check_in,
-                                    edit_check_out,
-                                    edit_phone.strip(),
-                                    edit_flight.strip(),
-                                    edit_notes.strip()
+                            if not edited_guest.strip():
+                                st.error(
+                                    "Please enter a guest name."
                                 )
 
-                                st.session_state.editing_booking_id = None
-                                st.success(f"Booking {booking_id} updated successfully.")
-                                st.rerun()
+                            elif edited_start >= edited_end:
+                                st.error(
+                                    "Check-out must be after check-in."
+                                )
 
-                st.markdown("<hr style='margin:10px 0; border:0.5px solid #333;'>", unsafe_allow_html=True)
+                            elif not valid_email_or_blank(
+                                edited_email
+                            ):
+                                st.error(
+                                    "Enter a valid email address "
+                                    "or leave the email field blank."
+                                )
 
-        if st.session_state.logs:
-            st.markdown("---")
-            with st.expander("✉️ System Confirmation Outbox Logs (Simulated)"):
-                for log in reversed(st.session_state.logs):
-                    st.code(log, language="text")
+                            else:
+                                conflict, other_id, other_guest = (
+                                    has_date_conflict(
+                                        st.session_state.bookings,
+                                        edited_start,
+                                        edited_end,
+                                        exclude_id=booking_id
+                                    )
+                                )
 
+                                if conflict:
+                                    st.error(
+                                        f"Those dates overlap booking "
+                                        f"{other_id} ({other_guest})."
+                                    )
 
-# --- PAGE 2: NEW BOOKING REQUEST ---
-elif page == "➕ New Booking Request":
-    st.title("➕ Create New Lodging Reservation")
-    st.markdown("Fill out the criteria details below to allocate schedule availability.")
-    
-    with st.form("booking_form", clear_on_submit=True):
-        st.markdown("#### 🔑 Essential Criteria")
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            guest_name = st.text_input("Primary Guest Full Name:", placeholder="John Doe")
-            guest_email = st.text_input(
-                "Guest Email Address (optional):",
-                placeholder="Leave blank if not required"
-            )
-        with col_f2:
-            check_in = st.date_input("Check-In Date", datetime.date(2026, 10, 5))
-            check_out = st.date_input("Check-Out Date", datetime.date(2026, 10, 12))
-            
+                                else:
+                                    mask = (
+                                        st.session_state.bookings[
+                                            "Booking ID"
+                                        ].astype(str) == booking_id
+                                    )
+
+                                    st.session_state.bookings.loc[
+                                        mask,
+                                        [
+                                            "Guest", "Email", "Phone",
+                                            "Start Date", "End Date",
+                                            "Flight Info", "Notes"
+                                        ]
+                                    ] = [
+                                        edited_guest.strip(),
+                                        edited_email.strip(),
+                                        edited_phone.strip(),
+                                        edited_start,
+                                        edited_end,
+                                        edited_flight.strip(),
+                                        edited_notes.strip()
+                                    ]
+
+                                    save_bookings(
+                                        st.session_state.bookings
+                                    )
+
+                                    st.session_state.logs.append(
+                                        f"[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}] "
+                                        f"Booking {booking_id} amended."
+                                    )
+
+                                    st.session_state[
+                                        f"editing_{booking_id}"
+                                    ] = False
+
+                                    st.toast(
+                                        "Booking amendments saved."
+                                    )
+                                    st.rerun()
+
+    # --- ACTIVITY LOG ---
+    if st.session_state.logs:
         st.markdown("---")
-        st.markdown("#### 📋 Optional Information")
-        col_f3, col_f4 = st.columns(2)
-        with col_f3:
-            guest_phone = st.text_input("Phone Number:", placeholder="+1 (555) 000-0000")
-        with col_f4:
-            flight_info = st.text_input("Flight Details / Number:", placeholder="AA123 or Arrival Time")
-            
-        guest_notes = st.text_area("Reservation Notes or Special Requests:", placeholder="Add details here...")
-        
-        submit_btn = st.form_submit_button("Verify & Dispatch Booking")
-        
-        if submit_btn:
-            if not guest_name:
-                st.error("Missing Requirement: Please provide a guest name.")
-            elif check_in >= check_out:
-                st.error("Error: Check-Out Date must fall cleanly after your chosen Check-In Date.")
+
+        with st.expander("System activity log"):
+            for log in reversed(st.session_state.logs):
+                st.code(log, language="text")
+
+
+# ============================================================
+# PAGE 2: NEW BOOKING
+# ============================================================
+elif page == "➕ New Booking Request":
+
+    st.title("➕ Create New Reservation")
+
+    st.markdown(
+        "Enter the guest and stay details below. "
+        "Email and phone details are optional."
+    )
+
+    with st.form("booking_form", clear_on_submit=True):
+
+        st.markdown("#### Guest and stay details")
+
+        form_col1, form_col2 = st.columns(2)
+
+        with form_col1:
+            guest_name = st.text_input(
+                "Primary guest full name",
+                placeholder="John Doe"
+            )
+
+            guest_email = st.text_input(
+                "Guest email address (optional)",
+                placeholder="john.doe@example.com"
+            )
+
+            guest_phone = st.text_input(
+                "Phone number (optional)",
+                placeholder="+44 7700 900000"
+            )
+
+        with form_col2:
+            check_in = st.date_input(
+                "Check-in date",
+                value=TODAY,
+                key="new_checkin"
+            )
+
+            check_out = st.date_input(
+                "Check-out date",
+                value=TODAY + datetime.timedelta(days=7),
+                key="new_checkout"
+            )
+
+            flight_info = st.text_input(
+                "Flight details / number (optional)",
+                placeholder="BA123 or arrival time"
+            )
+
+        guest_notes = st.text_area(
+            "Reservation notes or special requests (optional)",
+            placeholder="Add details here..."
+        )
+
+        submit_btn = st.form_submit_button(
+            "Create reservation",
+            type="primary"
+        )
+
+    # --- VALIDATE AND SAVE NEW BOOKING ---
+    if submit_btn:
+
+        if not guest_name.strip():
+            st.error("Please provide a guest name.")
+
+        elif check_in >= check_out:
+            st.error("Check-out must be after check-in.")
+
+        elif not valid_email_or_blank(guest_email):
+            st.error(
+                "Enter a valid email address or leave "
+                "the email field blank."
+            )
+
+        else:
+            conflict, other_id, other_guest = has_date_conflict(
+                st.session_state.bookings,
+                check_in,
+                check_out
+            )
+
+            if conflict:
+                st.error(
+                    f"Date conflict: these dates overlap "
+                    f"booking {other_id} ({other_guest})."
+                )
+
             else:
-                has_overlap = False
-                for _, res in st.session_state.bookings.iterrows():
-                    if (check_in <= res["End Date"]) and (check_out >= res["Start Date"]):
-                        has_overlap = True
-                        break
-                
-                if has_overlap:
-                    st.error("❌ Date Conflict: The property is already reserved during those selected dates.")
+                new_id = next_booking_id(
+                    st.session_state.bookings
+                )
+
+                new_record = {
+                    "Booking ID": new_id,
+                    "Guest": guest_name.strip(),
+                    "Email": guest_email.strip(),
+                    "Start Date": check_in,
+                    "End Date": check_out,
+                    "Phone": guest_phone.strip(),
+                    "Flight Info": flight_info.strip(),
+                    "Notes": guest_notes.strip(),
+                }
+
+                st.session_state.bookings = pd.concat(
+                    [
+                        st.session_state.bookings,
+                        pd.DataFrame([new_record])
+                    ],
+                    ignore_index=True
+                )[COLUMNS]
+
+                save_bookings(st.session_state.bookings)
+
+                timestamp = datetime.datetime.now().strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+
+                if guest_email.strip():
+                    log_message = (
+                        f"[{timestamp}] Simulated confirmation "
+                        f"email recorded for {guest_email.strip()} "
+                        f"(booking {new_id})."
+                    )
                 else:
-                    new_id = get_next_booking_id()
-                    new_record = {
-                        "Booking ID": new_id,
-                        "Guest": guest_name,
-                        "Email": guest_email,
-                        "Start Date": check_in,
-                        "End Date": check_out,
-                        "Phone": guest_phone,
-                        "Flight Info": flight_info,
-                        "Notes": guest_notes
-                    }
-                    
-                    st.session_state.bookings = pd.concat([st.session_state.bookings, pd.DataFrame([new_record])], ignore_index=True)
-                    save_bookings(st.session_state.bookings)
-                    
-                    log_booking_action(
-                        "CREATED",
-                        new_id,
-                        guest_name.strip(),
-                        guest_email.strip(),
-                        check_in,
-                        check_out,
-                        guest_phone.strip(),
-                        flight_info.strip(),
-                        guest_notes.strip()
+                    log_message = (
+                        f"[{timestamp}] Booking {new_id} created. "
+                        "No email supplied, so no confirmation "
+                        "email was recorded."
                     )
 
-                    email_message = (
-                        f"Confirmation simulated for {guest_email.strip()}."
-                        if guest_email.strip()
-                        else "Booking saved without an email address."
+                st.session_state.logs.append(log_message)
+
+                st.success(
+                    f"Reservation {new_id} created successfully."
+                )
+
+                if guest_email.strip():
+                    st.caption(
+                        "This app records a simulated email log. "
+                        "It does not send a real email."
                     )
-                    
-                    st.markdown(
-                        f'''<div style="background-color: #28A745; color: white; padding: 15px; border-radius: 6px; margin-bottom:15px;">
-                        <strong>🎉 Reservation Success!</strong> Booking <code>{new_id}</code> registered successfully.
-                        {email_message}<br>
-                        </div>''', 
-                        unsafe_allow_html=True
-                    )
+
