@@ -395,6 +395,7 @@ if page == "📊 Dashboard & Calendar":
                 else ""
             )
 
+            
             week_cols[idx].markdown(
                 f"""
                 <div style="
@@ -408,29 +409,25 @@ if page == "📊 Dashboard & Calendar":
                     border:{border};
                     box-sizing:border-box;
                     overflow-wrap:anywhere;
-                    word-break:normal;
                 ">
-                    <span style="
+                    <div style="
                         font-size:16px;
                         font-weight:700;
-                        display:block;
-                    ">{day}</span>
+                    ">{day}</div>
 
                     {today_label}
 
-                    <span style="
+                    <div style="
                         font-size:11px;
                         font-weight:600;
-                        display:block;
-                        white-space:normal;
-                        overflow-wrap:anywhere;
                         margin-top:6px;
                         line-height:1.4;
-                    ">{status}</span>
+                    ">{status}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+
 
     # ========================================================
     # BOOKING REGISTER
